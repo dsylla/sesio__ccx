@@ -2,14 +2,15 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Provision the ccx EC2 instance, its EBS volumes, EIP, Route 53 record, IAM role, security group, and the SSM parameter that holds the claude-config deploy key — using the S3 backend created by `terraform/bootstrap/`. Cloud-init kicks off `ansible-pull` so the box self-configures on first boot. The user manually seeds the SSM parameter value once after apply (see Task 5 Step 3 recipe).
+**Goal:** Provision the ccx EC2 instance, its EBS volumes, EIP, Route 53 record, IAM role, security group, and the SSM parameter that holds the claude-config deploy key — using the pre-existing shared `sesio-terraform-state` S3 bucket (native S3 locking via `use_lockfile`). Cloud-init kicks off `ansible-pull` so the box self-configures on first boot. The user manually seeds the SSM parameter value once after apply (see Task 5 Step 3 recipe).
 
 **Architecture:** Flat Terraform root at `terraform/` (no modules in v1 — start simple, extract if reuse emerges). Split into files by concern: `data.tf` for lookups, `iam.tf` for the instance role, `security.tf` for the SG, `compute.tf` for the instance + EBS + EIP, `dns.tf` for Route 53, `user_data.tftpl` for the cloud-init script. Outputs write `~/.config/ccx/instance_id` locally so `ccxctl` can find the box.
 
-**Tech Stack:** Terraform ≥ 1.7, AWS provider ≥ 5.0, `hashicorp/local` ≥ 2.0, profile `sesio__euwest1`, region `eu-west-1`.
+**Tech Stack:** Terraform ≥ 1.11 (for S3 native state locking via `use_lockfile`), AWS provider ≥ 5.0, `hashicorp/local` ≥ 2.0, profile `sesio__euwest1`, region `eu-west-1`.
+
+**State backend:** `s3://sesio-terraform-state/ccx/terraform.tfstate` with `use_lockfile = true` — matches the pattern in `sesio__network/terraform/main.tf`. The bucket pre-exists in the sesio account; no bootstrap needed.
 
 **Prereqs:**
-- `ccx-terraform-bootstrap` plan applied (S3 + DynamoDB exist).
 - `ccx-ansible` plan applied (playbook present in the repo so `ansible-pull` can find it).
 - `ccx-dotfiles` plan applied (dotfiles present for the Ansible `dotfiles` role to consume).
 
@@ -51,7 +52,7 @@ File `/home/david/Work/sesio/sesio__ccx/terraform/versions.tf`:
 
 ```hcl
 terraform {
-  required_version = ">= 1.7"
+  required_version = ">= 1.11"
   required_providers {
     aws = {
       source  = "hashicorp/aws"
@@ -63,12 +64,12 @@ terraform {
     }
   }
   backend "s3" {
-    bucket         = "sesio-terraform-state"
-    key            = "ccx/terraform.tfstate"
-    region         = "eu-west-1"
-    dynamodb_table = "sesio-terraform-state-lock"
-    encrypt        = true
-    profile        = "sesio__euwest1"
+    bucket       = "sesio-terraform-state"
+    key          = "ccx/terraform.tfstate"
+    region       = "eu-west-1"
+    encrypt      = true
+    profile      = "sesio__euwest1"
+    use_lockfile = true
   }
 }
 ```
@@ -632,8 +633,10 @@ File `/home/david/Work/sesio/sesio__ccx/terraform/README.md`:
 ````markdown
 # ccx terraform
 
-Main infrastructure for the ccx coding station. Depends on
-`terraform/bootstrap/` being applied first.
+Main infrastructure for the ccx coding station. Uses the pre-existing shared
+S3 state bucket `sesio-terraform-state` (same bucket as `sesio__network`),
+key `ccx/terraform.tfstate`, with `use_lockfile = true` for native S3
+locking (Terraform ≥ 1.11).
 
 ## Usage
 
@@ -670,8 +673,8 @@ claude-config commit SHA), cloud-init + ansible-pull succeeded.
 
 ## State
 
-S3 backend at `s3://sesio-terraform-state/ccx/terraform.tfstate`, locked
-via DynamoDB table `sesio-terraform-state-lock`.
+S3 backend at `s3://sesio-terraform-state/ccx/terraform.tfstate`. Locking
+via S3 conditional writes (`use_lockfile = true`), no DynamoDB.
 ````
 
 ---

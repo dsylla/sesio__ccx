@@ -943,16 +943,17 @@ ansible-lint:
 	ansible-lint ansible/site.yml
 
 terraform-check:
-	cd terraform/bootstrap && terraform fmt -check -recursive && terraform validate
 	@if [ -f terraform/versions.tf ]; then \
 	  cd terraform && terraform fmt -check -recursive && terraform validate ; \
+	else \
+	  echo "(no terraform/versions.tf yet — skipping)" ; \
 	fi
 ```
 
 - [ ] **Step 3: Run `make check`**
 
 Run: `cd /home/david/Work/sesio/sesio__ccx && make check`
-Expected: `ansible-check` passes, `ansible-lint` passes (warnings OK, errors not), `terraform-check` passes for bootstrap. Main terraform is conditionally skipped if `terraform/versions.tf` doesn't yet exist.
+Expected: `ansible-check` passes, `ansible-lint` passes (warnings OK, errors not), `terraform-check` runs only if `terraform/versions.tf` exists (otherwise prints a skip note).
 
 ---
 
