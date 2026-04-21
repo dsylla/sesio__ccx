@@ -1,0 +1,142 @@
+---
+# --- sesio__ccx clone (public, HTTPS) -------------------------------------
+- name: Ensure sesio__ccx repo is present at canonical path
+  become_user: "{{ target_user }}"
+  become: true
+  ansible.builtin.git:
+    repo: "{{ repo_url }}"
+    dest: "{{ repo_clone_path }}"
+    version: main
+    update: yes
+
+- name: Ensure ~/.ssh exists
+  become_user: "{{ target_user }}"
+  become: true
+  ansible.builtin.file:
+    path: "{{ target_home }}/.ssh"
+    state: directory
+    mode: "0700"
+
+# --- claude-config deploy key (fetched from SSM, retrying until seeded) ---
+- name: Wait for the claude-config deploy key to be seeded in SSM, then write it
+  become_user: "{{ target_user }}"
+  become: true
+  ansible.builtin.shell: |
+    set -e
+    KEY_PATH="{{ target_home }}/.ssh/claude_config_deploy_key"
+
+    # Up to 20 min (60 iters × 20s). Terraform apply creates the SSM param with a
+    # PLACEHOLDER; the user runs `aws ssm put-parameter --overwrite ...` after apply
+    # to seed the real value. This loop bridges the race.
+    for i in $(seq 1 60); do
+      VAL=$(aws ssm get-parameter \
+              --name "{{ claude_config_ssm_param }}" \
+              --with-decryption \
+              --region "{{ aws_region }}" \
+              --query 'Parameter.Value' \
+              --output text 2>/dev/null || echo "")
+      case "$VAL" in
+        ""|PLACEHOLDER*)
+          echo "[ccx] SSM {{ claude_config_ssm_param }} not yet seeded (try $i/60)..."
+          sleep 20
+          ;;
+        *)
+          printf '%s' "$VAL" > "$KEY_PATH"
+          chmod 600 "$KEY_PATH"
+          exit 0
+          ;;
+      esac
+    done
+    echo "[ccx] timeout waiting for SSM parameter to be seeded" >&2
+    exit 1
+  args:
+    creates: "{{ target_home }}/.ssh/claude_config_deploy_key"
+
+- name: Write SSH config alias for claude-config clone
+  become_user: "{{ target_user }}"
+  become: true
+  ansible.builtin.blockinfile:
+    path: "{{ target_home }}/.ssh/config"
+    create: yes
+    mode: "0600"
+    marker: "# {mark} ANSIBLE MANAGED - claude-config"
+    block: |
+      Host github-claude-config
+        HostName github.com
+        User git
+        IdentityFile {{ target_home }}/.ssh/claude_config_deploy_key
+        IdentitiesOnly yes
+        StrictHostKeyChecking accept-new
+
+# --- claude-config clone (private, via deploy key alias) ------------------
+- name: Clone claude-config
+  become_user: "{{ target_user }}"
+  become: true
+  ansible.builtin.git:
+    repo: "{{ claude_config_repo }}"
+    dest: "{{ claude_config_clone_path }}"
+    version: master
+    update: yes
+
+# --- symlink top-level shell/editor dotfiles into $HOME -------------------
+- name: Find top-level files in dotfiles/
+  ansible.builtin.find:
+    paths: "{{ repo_clone_path }}/dotfiles"
+    file_type: file
+    hidden: yes
+    excludes:
+      - README.md
+  register: _dotfiles_top
+
+- name: Symlink top-level dotfiles into $HOME
+  become_user: "{{ target_user }}"
+  become: true
+  ansible.builtin.file:
+    src: "{{ item.path }}"
+    dest: "{{ target_home }}/{{ item.path | basename }}"
+    state: link
+    force: yes
+  loop: "{{ _dotfiles_top.files }}"
+  loop_control:
+    label: "{{ item.path | basename }}"
+
+# --- assemble ~/.claude/ from two sources ---------------------------------
+- name: Ensure .claude directory exists
+  become_user: "{{ target_user }}"
+  become: true
+  ansible.builtin.file:
+    path: "{{ target_home }}/.claude"
+    state: directory
+    mode: "0700"
+
+- name: Symlink ~/.claude/* from sesio__ccx dotfiles (real files + local dirs)
+  become_user: "{{ target_user }}"
+  become: true
+  ansible.builtin.file:
+    src: "{{ repo_clone_path }}/dotfiles/.claude/{{ item }}"
+    dest: "{{ target_home }}/.claude/{{ item }}"
+    state: link
+    force: yes
+  loop:
+    - settings.json
+    - RTK.md
+    - commands
+    - hooks
+
+- name: Symlink ~/.claude/CLAUDE.md -> claude-config/CLAUDE.md
+  become_user: "{{ target_user }}"
+  become: true
+  ansible.builtin.file:
+    src: "{{ claude_config_clone_path }}/CLAUDE.md"
+    dest: "{{ target_home }}/.claude/CLAUDE.md"
+    state: link
+    force: yes
+
+- name: Symlink ~/.claude/skills -> claude-config/skills
+  become_user: "{{ target_user }}"
+  become: true
+  ansible.builtin.file:
+    src: "{{ claude_config_clone_path }}/skills"
+    dest: "{{ target_home }}/.claude/skills"
+    state: link
+    force: yes

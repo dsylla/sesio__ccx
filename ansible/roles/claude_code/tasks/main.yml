@@ -1,0 +1,11 @@
+---
+- name: Install @anthropic-ai/claude-code globally via asdf Node
+  become_user: "{{ target_user }}"
+  become: true
+  ansible.builtin.shell: |
+    source "{{ target_home }}/.asdf/asdf.sh"
+    npm install -g @anthropic-ai/claude-code
+  args:
+    executable: /bin/bash
+  register: _claude_install
+  changed_when: "'added' in _claude_install.stdout or 'updated' in _claude_install.stdout"

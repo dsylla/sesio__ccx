@@ -1,0 +1,58 @@
+---
+- name: Install zsh
+  ansible.builtin.apt:
+    name: zsh
+    state: present
+
+- name: Set zsh as default shell for target_user
+  ansible.builtin.user:
+    name: "{{ target_user }}"
+    shell: "{{ target_shell }}"
+
+- name: Install oh-my-zsh (unattended)
+  become_user: "{{ target_user }}"
+  become: true
+  ansible.builtin.shell: |
+    set -e
+    if [ ! -d "{{ target_home }}/.oh-my-zsh" ]; then
+      RUNZSH=no CHSH=no sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended
+    fi
+  args:
+    creates: "{{ target_home }}/.oh-my-zsh"
+
+- name: Install powerlevel10k theme
+  become_user: "{{ target_user }}"
+  become: true
+  ansible.builtin.git:
+    repo: https://github.com/romkatv/powerlevel10k.git
+    dest: "{{ target_home }}/.oh-my-zsh/custom/themes/powerlevel10k"
+    depth: 1
+    version: master
+
+- name: Install zsh-autosuggestions
+  become_user: "{{ target_user }}"
+  become: true
+  ansible.builtin.git:
+    repo: https://github.com/zsh-users/zsh-autosuggestions.git
+    dest: "{{ target_home }}/.oh-my-zsh/custom/plugins/zsh-autosuggestions"
+    depth: 1
+    version: master
+
+- name: Install zsh-syntax-highlighting
+  become_user: "{{ target_user }}"
+  become: true
+  ansible.builtin.git:
+    repo: https://github.com/zsh-users/zsh-syntax-highlighting.git
+    dest: "{{ target_home }}/.oh-my-zsh/custom/plugins/zsh-syntax-highlighting"
+    depth: 1
+    version: master
+
+- name: Install shell-aws-autoprofile (optional)
+  become_user: "{{ target_user }}"
+  become: true
+  ansible.builtin.git:
+    repo: https://github.com/dsylla/shell-aws-autoprofile.git
+    dest: "{{ target_home }}/.oh-my-zsh/custom/plugins/shell-aws-autoprofile"
+    depth: 1
+    version: main
+  ignore_errors: true

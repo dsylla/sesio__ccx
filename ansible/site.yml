@@ -1,0 +1,16 @@
+---
+- name: Provision ccx coding station
+  hosts: localhost
+  become: true
+  gather_facts: true
+  roles:
+    - base
+    - user
+    - aws_cli     # must run before dotfiles (dotfiles uses `aws ssm get-parameter`)
+    - zsh
+    - dotfiles
+    - asdf
+    - docker
+    - claude_code
+    - rtk
+    - verify

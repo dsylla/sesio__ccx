@@ -1,0 +1,48 @@
+---
+- name: Create target user
+  ansible.builtin.user:
+    name: "{{ target_user }}"
+    uid: "{{ target_uid }}"
+    shell: /bin/bash   # zsh role flips this after zsh is installed
+    groups: sudo
+    append: yes
+    create_home: yes
+    home: "{{ target_home }}"
+
+- name: Passwordless sudo for target_user
+  ansible.builtin.copy:
+    dest: "/etc/sudoers.d/90-{{ target_user }}"
+    content: "{{ target_user }} ALL=(ALL) NOPASSWD:ALL\n"
+    owner: root
+    group: root
+    mode: "0440"
+    validate: "visudo -cf %s"
+
+- name: Ensure .ssh directory
+  ansible.builtin.file:
+    path: "{{ target_home }}/.ssh"
+    state: directory
+    owner: "{{ target_user }}"
+    group: "{{ target_user }}"
+    mode: "0700"
+
+- name: Download authorized SSH keys from GitHub
+  ansible.builtin.get_url:
+    url: "{{ authorized_ssh_key_url }}"
+    dest: "{{ target_home }}/.ssh/authorized_keys"
+    owner: "{{ target_user }}"
+    group: "{{ target_user }}"
+    mode: "0600"
+    force: yes
+
+- name: Harden sshd (key-only, no root)
+  ansible.builtin.lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: "{{ item.regexp }}"
+    line: "{{ item.line }}"
+    validate: "sshd -t -f %s"
+  loop:
+    - { regexp: '^#?PasswordAuthentication ',          line: 'PasswordAuthentication no' }
+    - { regexp: '^#?PermitRootLogin ',                 line: 'PermitRootLogin no' }
+    - { regexp: '^#?ChallengeResponseAuthentication ', line: 'ChallengeResponseAuthentication no' }
+  notify: Restart sshd

@@ -1,0 +1,51 @@
+---
+- name: Install asdf build dependencies
+  ansible.builtin.apt:
+    name:
+      - autoconf
+      - bison
+      - libssl-dev
+      - libyaml-dev
+      - libreadline-dev
+      - zlib1g-dev
+      - libncurses5-dev
+      - libffi-dev
+      - libgdbm-dev
+      - libsqlite3-dev
+      - libbz2-dev
+      - liblzma-dev
+      - libxml2-dev
+      - libxmlsec1-dev
+    state: present
+
+- name: Clone asdf
+  become_user: "{{ target_user }}"
+  become: true
+  ansible.builtin.git:
+    repo: https://github.com/asdf-vm/asdf.git
+    dest: "{{ target_home }}/.asdf"
+    version: "{{ asdf_version }}"
+
+- name: Install asdf plugins
+  become_user: "{{ target_user }}"
+  become: true
+  ansible.builtin.shell: |
+    source "{{ target_home }}/.asdf/asdf.sh"
+    asdf plugin list | grep -qx "{{ item }}" || asdf plugin add "{{ item }}"
+  args:
+    executable: /bin/bash
+  loop: "{{ asdf_plugins }}"
+  changed_when: false
+
+- name: Install latest stable python / nodejs / ruby (and set global)
+  become_user: "{{ target_user }}"
+  become: true
+  ansible.builtin.shell: |
+    source "{{ target_home }}/.asdf/asdf.sh"
+    ver=$(asdf latest "{{ item }}")
+    asdf list "{{ item }}" | grep -qx "  $ver" || asdf install "{{ item }}" "$ver"
+    asdf global "{{ item }}" "$ver"
+  args:
+    executable: /bin/bash
+  loop: "{{ asdf_plugins }}"
+  changed_when: false

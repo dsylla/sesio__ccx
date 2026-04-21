@@ -1,0 +1,15 @@
+---
+profile: moderate
+exclude_paths:
+  - .cache/
+  - .terraform/
+skip_list:
+  # Stylistic; ansible has always accepted yes/no as booleans.
+  - yaml[truthy]
+  # Aligned-column formatting in lineinfile loop items.
+  - yaml[commas]
+  - yaml[line-length]
+  # Roles are ccx-specific, never shared — prefix adds noise.
+  - var-naming[no-role-prefix]
+  # `shell` is correct when we `source` an env script (asdf.sh); `command` can't.
+  - command-instead-of-shell

@@ -1,0 +1,81 @@
+---
+- name: Verify zsh is installed and is target_user's login shell
+  ansible.builtin.shell: |
+    set -e
+    test "$(getent passwd {{ target_user }} | cut -d: -f7)" = "{{ target_shell }}"
+    zsh --version
+  register: _v_zsh
+  changed_when: false
+
+- name: Verify docker runs and user is in docker group
+  ansible.builtin.shell: |
+    set -e
+    docker --version
+    id -nG {{ target_user }} | tr ' ' '\n' | grep -qx docker
+  register: _v_docker
+  changed_when: false
+
+- name: Verify asdf + languages
+  become_user: "{{ target_user }}"
+  become: true
+  ansible.builtin.shell: |
+    set -e
+    source "{{ target_home }}/.asdf/asdf.sh"
+    asdf --version
+    python --version
+    node --version
+    ruby --version
+  args:
+    executable: /bin/bash
+  register: _v_asdf
+  changed_when: false
+
+- name: Verify claude code
+  become_user: "{{ target_user }}"
+  become: true
+  ansible.builtin.shell: |
+    source "{{ target_home }}/.asdf/asdf.sh"
+    claude --version
+  args:
+    executable: /bin/bash
+  register: _v_claude
+  changed_when: false
+
+- name: Verify aws cli
+  ansible.builtin.shell: aws --version
+  register: _v_aws
+  changed_when: false
+
+- name: Verify rtk
+  ansible.builtin.command: "{{ rtk_install_dir }}/rtk --version"
+  register: _v_rtk
+  changed_when: false
+
+- name: Verify claude-config clone + symlinks
+  become_user: "{{ target_user }}"
+  become: true
+  ansible.builtin.shell: |
+    set -e
+    test -d "{{ claude_config_clone_path }}/.git"
+    test "$(readlink {{ target_home }}/.claude/CLAUDE.md)" = "{{ claude_config_clone_path }}/CLAUDE.md"
+    test "$(readlink {{ target_home }}/.claude/skills)"   = "{{ claude_config_clone_path }}/skills"
+    git -C "{{ claude_config_clone_path }}" rev-parse --short HEAD
+  register: _v_claude_config
+  changed_when: false
+
+- name: Write provision-ok marker
+  ansible.builtin.copy:
+    dest: /var/log/ccx-provision-ok
+    content: |
+      zsh:           {{ _v_zsh.stdout | trim }}
+      docker:        {{ _v_docker.stdout | trim }}
+      asdf:
+      {{ _v_asdf.stdout | indent(8, true) }}
+      claude:        {{ _v_claude.stdout | trim }}
+      aws:           {{ _v_aws.stdout | trim }}
+      rtk:           {{ _v_rtk.stdout | trim }}
+      claude-config: {{ _v_claude_config.stdout | trim }}
+      time:          {{ ansible_date_time.iso8601 }}
+    owner: root
+    group: root
+    mode: "0644"

@@ -1,0 +1,40 @@
+---
+- name: Detect installed rtk (if any)
+  ansible.builtin.command: "{{ rtk_install_dir }}/rtk --version"
+  register: _rtk_version
+  failed_when: false
+  changed_when: false
+
+- name: Download rtk release tarball (arm64)
+  ansible.builtin.get_url:
+    url: "{{ rtk_release_url }}"
+    dest: /tmp/rtk-aarch64.tar.gz
+    mode: "0644"
+  when: _rtk_version.rc != 0
+
+- name: Extract rtk
+  ansible.builtin.unarchive:
+    src: /tmp/rtk-aarch64.tar.gz
+    dest: /tmp
+    remote_src: yes
+    creates: /tmp/rtk
+  when: _rtk_version.rc != 0
+
+- name: Install rtk to {{ rtk_install_dir }}
+  ansible.builtin.copy:
+    src: /tmp/rtk
+    dest: "{{ rtk_install_dir }}/rtk"
+    mode: "0755"
+    owner: root
+    group: root
+    remote_src: yes
+  when: _rtk_version.rc != 0
+
+- name: Clean up rtk extraction artifacts
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /tmp/rtk-aarch64.tar.gz
+    - /tmp/rtk
+  when: _rtk_version.rc != 0

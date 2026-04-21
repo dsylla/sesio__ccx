@@ -1,0 +1,31 @@
+---
+target_user: david
+target_uid: 1000
+target_home: /home/david
+target_shell: /usr/bin/zsh
+aws_region: eu-west-1
+repo_url: https://github.com/dsylla/sesio__ccx.git
+repo_clone_path: /home/david/sesio__ccx
+authorized_ssh_key_url: https://github.com/dsylla.keys
+asdf_version: v0.14.0
+asdf_plugins:
+  - python
+  - nodejs
+  - ruby
+oh_my_zsh_plugins:
+  - git
+  - asdf
+  - sudo
+  - ruby
+  - aws
+  - shell-aws-autoprofile
+zsh_theme: powerlevel10k/powerlevel10k
+
+# claude-config (single source of truth for ~/.claude/{CLAUDE.md,skills})
+claude_config_repo: git@github-claude-config:dsylla/claude-config.git
+claude_config_clone_path: /home/david/claude-config
+claude_config_ssm_param: /ccx/claude_config_deploy_key
+
+# rtk (Rust Token Killer — CLI proxy for Claude Code token savings)
+rtk_release_url: https://github.com/rtk-ai/rtk/releases/latest/download/rtk-aarch64-unknown-linux-gnu.tar.gz
+rtk_install_dir: /usr/local/bin
