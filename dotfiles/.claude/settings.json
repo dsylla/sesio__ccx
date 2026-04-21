@@ -1,0 +1,207 @@
+{
+  "env": {
+    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"
+  },
+  "permissions": {
+    "allow": [
+      "Read",
+      "Edit(~/org/**)",
+      "Write(~/org/**)",
+      "Edit(/home/david/.claude/projects/**/memory/**)",
+      "Write(/home/david/.claude/projects/**/memory/**)",
+      "Bash(uv pip install:*)",
+      "Bash(bash /home/david/.claude/skills/check-uncommitted/check-dirty-repos.sh:*)",
+      "Bash(bash /home/david/.claude/skills/check-uncommitted/count-repos.sh:*)",
+      "Bash(aws * get-*:*)",
+      "Bash(aws * list-*:*)",
+      "Bash(aws * describe-*:*)",
+      "Bash(aws * batch-get-*:*)",
+      "Bash(aws sts get-caller-identity:*)",
+      "Bash(export AWS_PROFILE=*:*)",
+      "mcp__aws__check_environment_variables",
+      "mcp__aws__get_aws_account_info",
+      "mcp__aws__get_aws_session_info",
+      "mcp__aws__get_resource",
+      "mcp__aws__get_resource_request_status",
+      "mcp__aws__get_resource_schema_information",
+      "mcp__aws__list_resources",
+      "mcp__aws__explain",
+      "mcp__cognee__cognify",
+      "mcp__cognee__cognify_status",
+      "mcp__cognee__list_data",
+      "mcp__cognee__save_interaction",
+      "mcp__cognee__search",
+      "mcp__sequential-thinking__sequentialthinking",
+      "mcp__filesystem__read_file",
+      "mcp__filesystem__read_text_file",
+      "mcp__filesystem__read_multiple_files",
+      "mcp__filesystem__read_media_file",
+      "mcp__filesystem__list_directory",
+      "mcp__filesystem__directory_tree",
+      "mcp__filesystem__get_file_info",
+      "mcp__filesystem__list_allowed_directories",
+      "mcp__context7__resolve-library-id",
+      "mcp__context7__query-docs",
+      "mcp__git__git_status",
+      "mcp__git__git_log",
+      "mcp__git__git_diff",
+      "mcp__git__git_show",
+      "mcp__git__git_branch",
+      "mcp__git__git_remote",
+      "mcp__git__git_tag",
+      "mcp__git__git_wrapup_instructions",
+      "mcp__playwright__browser_click",
+      "mcp__playwright__browser_close",
+      "mcp__playwright__browser_console_messages",
+      "mcp__playwright__browser_drag",
+      "mcp__playwright__browser_evaluate",
+      "mcp__playwright__browser_file_upload",
+      "mcp__playwright__browser_fill_form",
+      "mcp__playwright__browser_handle_dialog",
+      "mcp__playwright__browser_hover",
+      "mcp__playwright__browser_install",
+      "mcp__playwright__browser_navigate",
+      "mcp__playwright__browser_navigate_back",
+      "mcp__playwright__browser_network_requests",
+      "mcp__playwright__browser_press_key",
+      "mcp__playwright__browser_resize",
+      "mcp__playwright__browser_run_code",
+      "mcp__playwright__browser_select_option",
+      "mcp__playwright__browser_snapshot",
+      "mcp__playwright__browser_tabs",
+      "mcp__playwright__browser_take_screenshot",
+      "mcp__playwright__browser_type",
+      "mcp__playwright__browser_wait_for",
+      "mcp__ruff__analyze-code",
+      "mcp__ruff__ruff-check",
+      "mcp__ruff__ruff-check-ci",
+      "mcp__ruff__ruff-format",
+      "mcp__ruff__vulture-scan",
+      "mcp__python-repl__execute_python",
+      "mcp__python-repl__install_package",
+      "mcp__python-repl__list_variables",
+      "mcp__docker__create-container",
+      "mcp__docker__deploy-compose",
+      "mcp__docker__get-logs",
+      "mcp__docker__list-containers",
+      "mcp__github__get_file_contents",
+      "mcp__github__get_issue",
+      "mcp__github__get_pull_request",
+      "mcp__github__get_pull_request_comments",
+      "mcp__github__get_pull_request_files",
+      "mcp__github__get_pull_request_reviews",
+      "mcp__github__get_pull_request_status",
+      "mcp__github__list_commits",
+      "mcp__github__list_issues",
+      "mcp__github__list_pull_requests",
+      "mcp__github__search_code",
+      "mcp__github__search_issues",
+      "mcp__github__search_repositories",
+      "mcp__github__search_users",
+      "mcp__cloudwatch__analyze_log_group",
+      "mcp__cloudwatch__analyze_metric",
+      "mcp__cloudwatch__describe_log_groups",
+      "mcp__cloudwatch__execute_log_insights_query",
+      "mcp__cloudwatch__get_active_alarms",
+      "mcp__cloudwatch__get_alarm_history",
+      "mcp__cloudwatch__get_logs_insight_query_results",
+      "mcp__cloudwatch__get_metric_data",
+      "mcp__cloudwatch__get_metric_metadata",
+      "mcp__cloudwatch__get_recommended_metric_alarms"
+    ]
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/session-start.sh",
+            "timeout": 15
+          }
+        ]
+      },
+      {
+        "matcher": "compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/post-compact.sh",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/session-stop.sh",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "TaskCompleted": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/task-completed.sh",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/tdd-check.sh",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/home/david/.claude/hooks/rtk-rewrite.sh"
+          }
+        ]
+      }
+    ],
+    "Notification": [
+      {
+        "matcher": "permission_prompt|elicitation_dialog",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "printf '\\a' > /dev/tty",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 /home/david/.claude/hooks/carl-hook.py"
+          }
+        ]
+      }
+    ]
+  },
+  "enabledPlugins": {
+    "pyright-lsp@claude-plugins-official": true,
+    "superpowers@claude-plugins-official": true,
+    "frontend-design@claude-plugins-official": true
+  }
+}
