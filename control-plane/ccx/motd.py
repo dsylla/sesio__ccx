@@ -266,3 +266,31 @@ def collect_dotfiles() -> Optional[dict[str, Any]]:
             continue
         out[name] = {"sha": sha, "behind": _git_behind(path)}
     return out or None
+
+
+import os as _os
+
+from ccx.sessions import collect_sessions, parse_jsonl_tokens_today
+
+_CLAUDE_PROJECTS_DIR = _os.path.expanduser("~/.claude/projects")
+
+
+def collect_motd_sessions() -> Optional[dict[str, Any]]:
+    try:
+        return {"sessions": collect_sessions()}
+    except Exception:
+        return None
+
+
+def collect_usage() -> Optional[dict[str, Any]]:
+    try:
+        all_jsonl: list[Path] = []
+        root = Path(_CLAUDE_PROJECTS_DIR)
+        if root.is_dir():
+            for proj in root.iterdir():
+                if proj.is_dir():
+                    all_jsonl.extend(proj.glob("*.jsonl"))
+        tk = parse_jsonl_tokens_today(all_jsonl)
+        return {"today": {**tk, "total": tk["input"] + tk["output"]}}
+    except Exception:
+        return None

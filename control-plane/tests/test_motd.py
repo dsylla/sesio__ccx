@@ -112,3 +112,28 @@ def test_collect_instance_imdsv2(monkeypatch):
     assert r["instance_type"] == "t4g.xlarge"
     assert r["region"] == "eu-west-1"
     assert r["public_ip"] == "1.2.3.4"
+
+
+def test_collect_sessions_wraps_sessions_module():
+    from ccx.motd import collect_motd_sessions
+    rows = [{"slug": "ccx", "tokens_today": {"input": 10, "output": 5}}]
+    with patch("ccx.motd.collect_sessions", return_value=rows):
+        r = collect_motd_sessions()
+    assert r == {"sessions": rows}
+
+
+def test_collect_usage_today_sums_across_projects(tmp_path, monkeypatch):
+    from ccx.motd import collect_usage
+    import datetime as dt
+    today = dt.datetime.now(dt.timezone.utc).isoformat()
+    (tmp_path / "projA").mkdir()
+    (tmp_path / "projA/log.jsonl").write_text(
+        json.dumps({"timestamp": today, "message": {"usage": {"input_tokens": 100, "output_tokens": 50}}}) + "\n"
+    )
+    (tmp_path / "projB").mkdir()
+    (tmp_path / "projB/log.jsonl").write_text(
+        json.dumps({"timestamp": today, "message": {"usage": {"input_tokens": 7, "output_tokens": 3}}}) + "\n"
+    )
+    monkeypatch.setattr("ccx.motd._CLAUDE_PROJECTS_DIR", str(tmp_path))
+    r = collect_usage()
+    assert r["today"] == {"input": 107, "output": 53, "total": 160}
