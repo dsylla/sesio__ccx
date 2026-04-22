@@ -12,9 +12,10 @@ from functools import cached_property
 from pathlib import Path
 from typing import Annotated
 
-import boto3
 import typer
-from botocore.exceptions import ClientError
+
+# boto3 is imported lazily in Config.session below. The ssh / --help / menu-
+# with-$CCX_STATE paths avoid the ~100 ms boto3 import entirely.
 
 # --- config ---------------------------------------------------------------
 
@@ -65,7 +66,8 @@ class Config:
         return iid
 
     @cached_property
-    def session(self) -> boto3.session.Session:
+    def session(self):
+        import boto3  # lazy: skip ~100 ms on commands that don't touch AWS
         return boto3.session.Session(profile_name=self.aws_profile, region_name=self.region)
 
     @cached_property
