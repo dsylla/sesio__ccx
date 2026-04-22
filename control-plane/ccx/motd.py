@@ -1,8 +1,20 @@
 """ccxctl motd — ANSI-boxed login banner for the ccx coding station."""
 from __future__ import annotations
 
+import os
 import re
 import shutil
+import socket
+import subprocess
+import time
+import urllib.request
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from pathlib import Path
+from typing import Any, Optional
+
+import typer
+
+from ccx.sessions import collect_sessions, parse_jsonl_tokens_today
 
 
 class C:
@@ -106,12 +118,6 @@ def service_dot(state: str) -> str:
     return f"{C.YELLOW}◐{C.RESET}"
 
 
-import subprocess
-import time
-import urllib.request
-from pathlib import Path
-from typing import Any, Optional
-
 _PROC = "/proc"
 _SLEEP = time.sleep
 _DISK_FN = shutil.disk_usage
@@ -140,7 +146,6 @@ def _read_cpu_pct() -> float:
 
 def collect_system() -> Optional[dict[str, Any]]:
     try:
-        import socket
         with open(f"{_PROC}/uptime") as f:
             uptime_s = float(f.read().split()[0])
         info: dict[str, int] = {}
@@ -241,15 +246,18 @@ def _git_sha(repo_dir: str) -> Optional[str]:
         return None
 
 
-def _git_behind(repo_dir: str) -> int:
+def _git_behind(repo_dir: str) -> int | None:
+    """Commits behind upstream. None if no upstream configured."""
     try:
         r = subprocess.run(
             ["git", "-C", repo_dir, "rev-list", "--count", "HEAD..@{u}"],
             capture_output=True, text=True, timeout=_SUBPROC_TIMEOUT,
         )
-        return int(r.stdout.strip() or 0)
+        if r.returncode != 0 or not r.stdout.strip():
+            return None
+        return int(r.stdout.strip())
     except (subprocess.TimeoutExpired, OSError, ValueError):
-        return 0
+        return None
 
 
 DOTFILES_REPOS = {
@@ -268,11 +276,7 @@ def collect_dotfiles() -> Optional[dict[str, Any]]:
     return out or None
 
 
-import os as _os
-
-from ccx.sessions import collect_sessions, parse_jsonl_tokens_today
-
-_CLAUDE_PROJECTS_DIR = _os.path.expanduser("~/.claude/projects")
+_CLAUDE_PROJECTS_DIR = os.path.expanduser("~/.claude/projects")
 
 
 def collect_motd_sessions() -> Optional[dict[str, Any]]:
@@ -295,9 +299,6 @@ def collect_usage() -> Optional[dict[str, Any]]:
     except Exception:
         return None
 
-
-import typer
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
 COLLECT_TIMEOUT = 5
 
@@ -375,7 +376,13 @@ def render_motd(
     lines.append(box_full_mid("DOTFILES"))
     if dotfiles:
         for name, info in dotfiles.items():
-            drift = f" ({C.YELLOW}{info['behind']} behind{C.RESET})" if info["behind"] else ""
+            behind = info["behind"]
+            if behind is None:
+                drift = f" {C.DIM}(no upstream){C.RESET}"
+            elif behind:
+                drift = f" ({C.YELLOW}{behind} behind{C.RESET})"
+            else:
+                drift = ""
             lines.append(full_row(f" {C.BOLD}{name}{C.RESET}  {info['sha']}{drift}"))
     else:
         lines.append(full_row(f" {C.DIM}unavailable{C.RESET}"))

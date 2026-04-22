@@ -89,9 +89,13 @@ def test_collect_instance_imdsv2(monkeypatch):
         def __enter__(self): return self
         def __exit__(self, *a): pass
 
+    captured_headers: list[dict] = []
+
     def fake_urlopen(req, timeout=None):
-        url = getattr(req, "full_url", req) if hasattr(req, "full_url") else req
-        if "api/token" in str(url):
+        url = getattr(req, "full_url", str(req))
+        headers = dict(getattr(req, "headers", {}) or {})
+        captured_headers.append(headers)
+        if "api/token" in url:
             return FakeResp("TOKEN")
         mapping = {
             "instance-id":      "i-abc",
@@ -102,7 +106,7 @@ def test_collect_instance_imdsv2(monkeypatch):
             "public-hostname":  "ec2-1-2-3-4.eu-west-1.compute.amazonaws.com",
         }
         for k, v in mapping.items():
-            if str(url).endswith(k):
+            if url.endswith(k):
                 return FakeResp(v)
         return FakeResp("")
 
@@ -112,6 +116,13 @@ def test_collect_instance_imdsv2(monkeypatch):
     assert r["instance_type"] == "t4g.xlarge"
     assert r["region"] == "eu-west-1"
     assert r["public_ip"] == "1.2.3.4"
+    # At least one GET must have passed the X-aws-ec2-metadata-token header.
+    # Header names in urllib.request.Request are stored capitalized, not raw.
+    any_token_header = any(
+        any(k.lower() == "x-aws-ec2-metadata-token" and v == "TOKEN" for k, v in h.items())
+        for h in captured_headers[1:]  # skip the first call (the PUT for the token)
+    )
+    assert any_token_header, f"no token header in GETs: {captured_headers}"
 
 
 def test_collect_sessions_wraps_sessions_module():
@@ -137,6 +148,24 @@ def test_collect_usage_today_sums_across_projects(tmp_path, monkeypatch):
     monkeypatch.setattr("ccx.motd._CLAUDE_PROJECTS_DIR", str(tmp_path))
     r = collect_usage()
     assert r["today"] == {"input": 107, "output": 53, "total": 160}
+
+
+def test_collect_dotfiles_no_upstream_returns_none_behind():
+    from ccx.motd import collect_dotfiles
+    from unittest.mock import MagicMock
+    def fake_run(argv, **kw):
+        m = MagicMock()
+        if "rev-parse" in argv:
+            m.returncode = 0
+            m.stdout = "abc1234\n"
+        elif "rev-list" in argv:
+            m.returncode = 128  # git: "no upstream configured"
+            m.stdout = ""
+        return m
+    with patch("ccx.motd.subprocess.run", side_effect=fake_run):
+        r = collect_dotfiles()
+    any_none = any(v["behind"] is None for v in r.values())
+    assert any_none
 
 
 def test_render_motd_smoke():
