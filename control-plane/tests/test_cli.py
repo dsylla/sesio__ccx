@@ -183,3 +183,37 @@ def test_menu_no_selection_is_noop(runner, tmp_path, monkeypatch):
 
     result = run()
     assert result.exit_code == 0, result.stdout
+
+
+def test_ssh_default_uses_tmux(monkeypatch):
+    """Default ssh should request `tmux new-session -A -s ccx` on the remote."""
+    import importlib, ccx.cli
+    importlib.reload(ccx.cli)
+    captured: list[list[str]] = []
+
+    def fake_execvp(prog, argv):
+        captured.append(argv)
+
+    monkeypatch.setattr(ccx.cli.os, "execvp", fake_execvp)
+    from typer.testing import CliRunner
+    CliRunner().invoke(ccx.cli.app, ["ssh"])
+    assert captured, "execvp was not called"
+    cmd = captured[0]
+    assert "tmux" in " ".join(cmd)
+    assert "new-session" in " ".join(cmd)
+    assert "-A" in cmd
+    assert "-s" in cmd and "ccx" in cmd
+
+
+def test_ssh_raw_skips_tmux(monkeypatch):
+    # Use a fixed key path that does not contain the word "tmux" so that the
+    # assertion "tmux not in joined argv" only tests for the tmux remote command.
+    monkeypatch.setenv("CCX_SSH_KEY", "/dev/null")
+    import importlib, ccx.cli
+    importlib.reload(ccx.cli)
+    captured: list[list[str]] = []
+    monkeypatch.setattr(ccx.cli.os, "execvp", lambda _, argv: captured.append(argv))
+    from typer.testing import CliRunner
+    CliRunner().invoke(ccx.cli.app, ["ssh", "--raw"])
+    cmd = " ".join(captured[0])
+    assert "tmux" not in cmd

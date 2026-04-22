@@ -260,19 +260,24 @@ def stop() -> None:
 
 @app.command()
 def ssh(
-    ctx: typer.Context,
+    raw: Annotated[bool, typer.Option("--raw", "-R", help="Plain shell, skip tmux.")] = False,
     args: Annotated[list[str] | None, typer.Argument(help="Extra ssh arguments.")] = None,
 ) -> None:
-    """SSH to the instance with the pinned key."""
-    argv = [
+    """SSH to the instance. Default: attach to shared tmux session `ccx`."""
+    base_argv = [
         "ssh",
         "-i", str(CFG.ssh_key),
         "-o", "IdentitiesOnly=yes",
         "-o", "StrictHostKeyChecking=accept-new",
+        "-t",
         f"{CFG.ssh_user}@{CFG.hostname}",
-        *(args or []),
     ]
-    os.execvp("ssh", argv)
+    extra = list(args or [])
+    if raw:
+        os.execvp("ssh", base_argv + extra)
+    else:
+        # Attach or create the shared session on the remote.
+        os.execvp("ssh", base_argv + ["tmux", "new-session", "-A", "-s", "ccx"] + extra)
 
 
 @app.command("refresh-sg")
