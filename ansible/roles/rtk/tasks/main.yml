@@ -38,3 +38,20 @@
     - /tmp/rtk-aarch64.tar.gz
     - /tmp/rtk
   when: _rtk_version.rc != 0
+
+# rtk release is linux-gnu only (GLIBC-linked). Debian 12's GLIBC (2.36) is
+# older than what the release binary requires (>= 2.39). If exec fails, remove
+# the binary so rtk-rewrite.sh's `command -v rtk` check fails cleanly and the
+# hook becomes a no-op (instead of Claude Code seeing broken rtk output).
+- name: Test rtk runs (GLIBC compatibility etc.)
+  ansible.builtin.command: "{{ rtk_install_dir }}/rtk --version"
+  register: _rtk_test
+  failed_when: false
+  changed_when: false
+  when: _rtk_version.rc != 0
+
+- name: Remove broken rtk binary (incompatible libc, etc.)
+  ansible.builtin.file:
+    path: "{{ rtk_install_dir }}/rtk"
+    state: absent
+  when: _rtk_version.rc != 0 and _rtk_test.rc is defined and _rtk_test.rc != 0

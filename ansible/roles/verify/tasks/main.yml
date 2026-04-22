@@ -46,8 +46,13 @@
   register: _v_aws
   changed_when: false
 
-- name: Verify rtk
-  ansible.builtin.command: "{{ rtk_install_dir }}/rtk --version"
+- name: Verify rtk (optional — arm64-musl release not published yet)
+  ansible.builtin.shell: |
+    if [ -x "{{ rtk_install_dir }}/rtk" ]; then
+      "{{ rtk_install_dir }}/rtk" --version 2>&1 || echo "(rtk installed but not runnable — libc mismatch?)"
+    else
+      echo "(rtk unavailable — hook gracefully no-ops)"
+    fi
   register: _v_rtk
   changed_when: false
 
