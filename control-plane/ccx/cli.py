@@ -223,6 +223,9 @@ app = typer.Typer(
     pretty_exceptions_show_locals=False,
 )
 
+from ccx.sessions import app as _sessions_app
+app.add_typer(_sessions_app, name="session", help="Manage claude sessions (tmux).")
+
 
 @app.command()
 def status() -> None:
