@@ -41,7 +41,8 @@
           sleep 20
           ;;
         *)
-          printf '%s' "$VAL" > "$KEY_PATH"
+          # Preserve trailing newline — ssh-keygen/libcrypto require it.
+          printf '%s\n' "$VAL" > "$KEY_PATH"
           chmod 600 "$KEY_PATH"
           exit 0
           ;;
