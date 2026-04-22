@@ -129,3 +129,45 @@ def test_find_claude_pid_none_when_absent(tmp_path, monkeypatch):
     (proc / "100/comm").write_text("bash\n")
     monkeypatch.setattr("ccx.sessions._PROC", str(proc))
     assert find_claude_pid(100) is None
+
+
+def test_collect_sessions_happy_path(tmp_path, monkeypatch):
+    """Merge tmux rows + claude pid + tokens into a canonical list."""
+    from ccx.sessions import collect_sessions
+
+    # Fake /proc so find_claude_pid returns 102 for pane 42
+    proc = tmp_path / "proc"
+    (proc / "42/task/42").mkdir(parents=True)
+    (proc / "42/task/42/children").write_text("102 ")
+    (proc / "42/comm").write_text("bash\n")
+    (proc / "102/task/102").mkdir(parents=True)
+    (proc / "102/task/102/children").write_text("")
+    (proc / "102/comm").write_text("claude\n")
+    (proc / "102/stat").write_text(
+        "102 (claude) S " + "0 " * 18 + "1000 " + "0 " * 30
+    )  # 22nd field = starttime (in ticks since boot)
+    monkeypatch.setattr("ccx.sessions._PROC", str(proc))
+    monkeypatch.setattr("ccx.sessions._NOW_FN", lambda: 2000)
+    monkeypatch.setattr("ccx.sessions._BOOT_FN", lambda: 1000)
+
+    # Fake claude_projects_dir → no jsonl → zero tokens
+    monkeypatch.setattr(
+        "ccx.sessions._CLAUDE_PROJECTS_DIR",
+        str(tmp_path / "not-there"),
+    )
+
+    # Mock tmux
+    with patch("ccx.sessions.tmux_list_windows", return_value=[
+        {"slug": "ccx", "activity": 1700000000,
+         "cwd": "/home/david/Work/sesio/ccx", "pane_pid": 42}
+    ]):
+        sessions = collect_sessions()
+
+    assert sessions == [{
+        "slug": "ccx",
+        "cwd": "/home/david/Work/sesio/ccx",
+        "pane_pid": 42,
+        "claude_pid": 102,
+        "uptime_seconds": pytest.approx(1000 / 100, abs=1),  # (2000-1000)/clk_tck
+        "tokens_today": {"input": 0, "output": 0},
+    }]

@@ -131,3 +131,69 @@ def find_claude_pid(pane_pid: int) -> int | None:
         except FileNotFoundError:
             continue
     return None
+
+
+import time
+
+_NOW_FN = time.time
+_CLAUDE_PROJECTS_DIR = os.path.expanduser("~/.claude/projects")
+
+
+def _boot_time() -> float:
+    try:
+        with open(f"{_PROC}/stat") as f:
+            for line in f:
+                if line.startswith("btime "):
+                    return float(line.split()[1])
+    except FileNotFoundError:
+        pass
+    return 0.0
+
+
+_BOOT_FN = _boot_time
+
+
+def _process_uptime_seconds(pid: int) -> float | None:
+    """Uptime of a pid in seconds, derived from /proc/<pid>/stat starttime field."""
+    try:
+        with open(f"{_PROC}/{pid}/stat") as f:
+            raw = f.read()
+    except FileNotFoundError:
+        return None
+    # The comm field can contain spaces/parens, so take everything after the closing paren.
+    rest = raw.split(")", 1)[-1].split()
+    # rest[0] = state, then 20 more fields → starttime at rest[19]
+    try:
+        starttime_ticks = int(rest[19])
+    except (IndexError, ValueError):
+        return None
+    clk_tck = os.sysconf("SC_CLK_TCK") if hasattr(os, "sysconf") else 100
+    # _NOW_FN returns current time in the same tick unit as starttime_ticks;
+    # _BOOT_FN is available for callers that need absolute epoch anchoring.
+    return (_NOW_FN() - starttime_ticks) / clk_tck
+
+
+def _project_jsonl_files(cwd: str) -> list[Path]:
+    enc = encode_project_dir(cwd)
+    d = Path(_CLAUDE_PROJECTS_DIR) / enc
+    if not d.is_dir():
+        return []
+    return sorted(d.glob("*.jsonl"))
+
+
+def collect_sessions() -> list[dict]:
+    """Enumerate tmux windows in session `ccx`, enrich each with claude + tokens."""
+    out: list[dict] = []
+    for row in tmux_list_windows():
+        claude_pid = find_claude_pid(row["pane_pid"])
+        uptime = _process_uptime_seconds(claude_pid) if claude_pid else None
+        tokens = parse_jsonl_tokens_today(_project_jsonl_files(row["cwd"]))
+        out.append({
+            "slug": row["slug"],
+            "cwd": row["cwd"],
+            "pane_pid": row["pane_pid"],
+            "claude_pid": claude_pid,
+            "uptime_seconds": uptime,
+            "tokens_today": tokens,
+        })
+    return out
