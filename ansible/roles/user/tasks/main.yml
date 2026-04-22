@@ -26,14 +26,13 @@
     group: "{{ target_user }}"
     mode: "0700"
 
-- name: Download authorized SSH keys from GitHub
-  ansible.builtin.get_url:
-    url: "{{ authorized_ssh_key_url }}"
+- name: Install authorized SSH keys (bundled sesio-nodes.pub)
+  ansible.builtin.copy:
+    src: authorized_keys
     dest: "{{ target_home }}/.ssh/authorized_keys"
     owner: "{{ target_user }}"
     group: "{{ target_user }}"
     mode: "0600"
-    force: yes
 
 - name: Harden sshd (key-only, no root)
   ansible.builtin.lineinfile:

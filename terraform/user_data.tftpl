@@ -2,7 +2,7 @@
 set -euxo pipefail
 exec > >(tee -a /var/log/ccx-user-data.log) 2>&1
 
-HOME_DEV_ID="nvme-Amazon_Elastic_Block_Store_vol-${home_volume_id_stripped}"
+HOME_DEV_ID="nvme-Amazon_Elastic_Block_Store_${home_volume_id_nohyphen}"
 HOME_DEV_PATH="/dev/disk/by-id/$${HOME_DEV_ID}"
 
 # Wait up to 120s for the home volume to appear as a by-id node.

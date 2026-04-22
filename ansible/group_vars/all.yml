@@ -6,7 +6,7 @@ target_shell: /usr/bin/zsh
 aws_region: eu-west-1
 repo_url: https://github.com/dsylla/sesio__ccx.git
 repo_clone_path: /home/david/sesio__ccx
-authorized_ssh_key_url: https://github.com/dsylla.keys
+# authorized_keys content bundled at roles/user/files/authorized_keys
 asdf_version: v0.14.0
 asdf_plugins:
   - python

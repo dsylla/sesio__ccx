@@ -1,3 +1,8 @@
+resource "aws_key_pair" "ccx" {
+  key_name   = "${var.name}-admin"
+  public_key = trimspace(file("${path.module}/../ansible/roles/user/files/authorized_keys"))
+}
+
 resource "aws_ebs_volume" "home" {
   availability_zone = data.aws_subnet.picked.availability_zone
   size              = var.home_volume_size_gb
@@ -14,10 +19,12 @@ resource "aws_ebs_volume" "home" {
 }
 
 locals {
-  home_volume_id_stripped = replace(aws_ebs_volume.home.id, "vol-", "")
+  # Nitro NVMe by-id format is `nvme-Amazon_Elastic_Block_Store_vol<16hex>`
+  # (no hyphen after `vol`). Strip the hyphen, keep the `vol` prefix.
+  home_volume_id_nohyphen = replace(aws_ebs_volume.home.id, "-", "")
 
   user_data = templatefile("${path.module}/user_data.tftpl", {
-    home_volume_id_stripped = local.home_volume_id_stripped
+    home_volume_id_nohyphen = local.home_volume_id_nohyphen
     repo_url                = var.repo_url
   })
 }
@@ -28,6 +35,7 @@ resource "aws_instance" "ccx" {
   subnet_id              = data.aws_subnet.picked.id
   vpc_security_group_ids = [aws_security_group.instance.id]
   iam_instance_profile   = aws_iam_instance_profile.instance.name
+  key_name               = aws_key_pair.ccx.key_name
   user_data              = local.user_data
 
   metadata_options {
