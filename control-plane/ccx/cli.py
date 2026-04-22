@@ -228,6 +228,13 @@ app.add_typer(_sessions_app, name="session", help="Manage claude sessions (tmux)
 
 
 @app.command()
+def motd() -> None:
+    """Print the ccx login banner (system / instance / sessions / usage / services / dotfiles)."""
+    from ccx.motd import main as _motd_main
+    _motd_main()
+
+
+@app.command()
 def status() -> None:
     """Print one-line status: state type ip uptime id."""
     log(format_status_line(describe_instance()))

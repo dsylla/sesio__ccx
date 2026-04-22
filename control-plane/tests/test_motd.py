@@ -137,3 +137,24 @@ def test_collect_usage_today_sums_across_projects(tmp_path, monkeypatch):
     monkeypatch.setattr("ccx.motd._CLAUDE_PROJECTS_DIR", str(tmp_path))
     r = collect_usage()
     assert r["today"] == {"input": 107, "output": 53, "total": 160}
+
+
+def test_render_motd_smoke():
+    """Just ensure the renderer produces non-empty boxed output for a sample payload."""
+    from ccx.motd import render_motd
+    system = {"hostname": "ccx", "uptime": "1h 2m", "cpu_pct": 5, "ram_pct": 10,
+              "disk_used": "10G", "disk_total": "100G", "disk_pct": 10}
+    instance = {"instance_id": "i-abc", "instance_type": "t4g.xlarge",
+                "region": "eu-west-1", "az": "eu-west-1a",
+                "public_ip": "1.2.3.4", "public_hostname": "h.example.com"}
+    services = {"services": [("docker", "active"), ("ssh", "active")]}
+    sessions = {"sessions": []}
+    usage = {"today": {"input": 100, "output": 50, "total": 150}}
+    dotfiles = {"sesio__ccx": {"sha": "abc1234", "behind": 0}}
+
+    out = render_motd(system, instance, sessions, usage, services, dotfiles)
+    assert "ccx" in out
+    assert "t4g.xlarge" in out
+    assert "docker" in out
+    assert "abc1234" in out
+    assert "╔" in out and "╚" in out

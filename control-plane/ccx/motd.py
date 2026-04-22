@@ -294,3 +294,120 @@ def collect_usage() -> Optional[dict[str, Any]]:
         return {"today": {**tk, "total": tk["input"] + tk["output"]}}
     except Exception:
         return None
+
+
+import typer
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
+COLLECT_TIMEOUT = 5
+
+
+def render_motd(
+    system: Optional[dict], instance: Optional[dict],
+    sessions: Optional[dict], usage: Optional[dict],
+    services: Optional[dict], dotfiles: Optional[dict],
+) -> str:
+    lines: list[str] = []
+    # ---- SYSTEM / INSTANCE ----
+    lines.append(box_top("SYSTEM", "INSTANCE"))
+    sys_l = [" unavailable", "", "", ""]
+    if system:
+        s = system
+        sys_l = [
+            f" Host:   {C.BOLD}{s['hostname']}{C.RESET}",
+            f" Uptime: {C.BOLD}{s['uptime']}{C.RESET}",
+            f" CPU: {C.BOLD}{s['cpu_pct']}%{C.RESET}  RAM: {C.BOLD}{s['ram_pct']}%{C.RESET}",
+            f" Disk: {C.BOLD}{s['disk_used']}/{s['disk_total']}{C.RESET} ({s['disk_pct']}%)",
+        ]
+    ins_l = [" unavailable", "", "", ""]
+    if instance:
+        i = instance
+        ins_l = [
+            f" Type: {C.BOLD}{i['instance_type']}{C.RESET}",
+            f" Reg:  {C.BOLD}{i['region']}{C.RESET} ({i['az']})",
+            f" IP:   {C.BOLD}{i['public_ip']}{C.RESET}",
+            f" ID:   {C.DIM}{i['instance_id']}{C.RESET}",
+        ]
+    for l, r in zip(sys_l, ins_l):
+        lines.append(row(l, r))
+
+    # ---- SESSIONS (full width) ----
+    lines.append(box_full_mid("SESSIONS"))
+    if sessions and sessions["sessions"]:
+        for s in sessions["sessions"]:
+            up = format_uptime(s["uptime_seconds"] or 0) if s.get("uptime_seconds") else "-"
+            toks = s["tokens_today"]
+            content = (
+                f" {C.BOLD}{s['slug']}{C.RESET}"
+                f"  up {up}"
+                f"  in {C.BOLD}{toks['input']}{C.RESET}"
+                f"  out {C.BOLD}{toks['output']}{C.RESET}"
+                f"  {C.DIM}{s['cwd']}{C.RESET}"
+            )
+            lines.append(full_row(content))
+    else:
+        lines.append(full_row(f" {C.DIM}(no sessions){C.RESET}"))
+
+    # ---- USAGE / SERVICES ----
+    lines.append(box_mid("USAGE (today)", "SERVICES"))
+    us_l = [" unavailable", "", ""]
+    if usage:
+        t = usage["today"]
+        us_l = [
+            f" In:    {C.BOLD}{t['input']}{C.RESET}",
+            f" Out:   {C.BOLD}{t['output']}{C.RESET}",
+            f" Total: {C.BOLD}{t['total']}{C.RESET}",
+        ]
+    sv_l = [" unavailable", "", ""]
+    if services:
+        sv_l = []
+        for name, state in services["services"]:
+            sv_l.append(f" {service_dot(state)} {name:<20s} {state}")
+        while len(sv_l) < 3:
+            sv_l.append("")
+    max_n = max(len(us_l), len(sv_l))
+    us_l += [""] * (max_n - len(us_l))
+    sv_l += [""] * (max_n - len(sv_l))
+    for l, r in zip(us_l, sv_l):
+        lines.append(row(l, r))
+
+    # ---- DOTFILES (full width) ----
+    lines.append(box_full_mid("DOTFILES"))
+    if dotfiles:
+        for name, info in dotfiles.items():
+            drift = f" ({C.YELLOW}{info['behind']} behind{C.RESET})" if info["behind"] else ""
+            lines.append(full_row(f" {C.BOLD}{name}{C.RESET}  {info['sha']}{drift}"))
+    else:
+        lines.append(full_row(f" {C.DIM}unavailable{C.RESET}"))
+    lines.append(box_full_bottom())
+    return "\n".join(lines)
+
+
+def main() -> int:
+    collectors = {
+        "system":    collect_system,
+        "instance":  collect_instance,
+        "sessions":  collect_motd_sessions,
+        "usage":     collect_usage,
+        "services":  collect_services,
+        "dotfiles":  collect_dotfiles,
+    }
+    results: dict[str, Any] = {}
+    with ThreadPoolExecutor(max_workers=len(collectors)) as ex:
+        futs = {ex.submit(fn): n for n, fn in collectors.items()}
+        try:
+            for fut in as_completed(futs, timeout=COLLECT_TIMEOUT):
+                n = futs[fut]
+                try:
+                    results[n] = fut.result()
+                except Exception:
+                    results[n] = None
+        except TimeoutError:
+            pass
+    for n in collectors:
+        results.setdefault(n, None)
+    print(render_motd(
+        results["system"], results["instance"], results["sessions"],
+        results["usage"], results["services"], results["dotfiles"],
+    ))
+    return 0
