@@ -235,3 +235,20 @@ def test_session_kill_calls_tmux_kill_window():
     assert result.exit_code == 0
     argvs = [call.args[0] for call in run.call_args_list]
     assert any("kill-window" in a for a in argvs)
+
+
+def test_session_attach_without_slug_targets_session(monkeypatch):
+    from ccx.sessions import app, SESSION_NAME
+    captured: list[list[str]] = []
+    monkeypatch.setattr("ccx.sessions.os.execvp", lambda _, argv: captured.append(argv))
+    CliRunner().invoke(app, ["attach"])
+    assert captured, "execvp was not called"
+    assert captured[0] == ["tmux", "attach-session", "-t", SESSION_NAME]
+
+
+def test_session_attach_with_slug_targets_window(monkeypatch):
+    from ccx.sessions import app, SESSION_NAME
+    captured: list[list[str]] = []
+    monkeypatch.setattr("ccx.sessions.os.execvp", lambda _, argv: captured.append(argv))
+    CliRunner().invoke(app, ["attach", "ccx"])
+    assert captured[0] == ["tmux", "attach-session", "-t", f"{SESSION_NAME}:ccx"]

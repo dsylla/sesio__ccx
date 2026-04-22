@@ -3,13 +3,16 @@ from __future__ import annotations
 
 import datetime as _dt
 import json
+import os
 import re
+import subprocess
+import time
+import typer
 from pathlib import Path
 
 
 def slug(path: str) -> str:
     """Slugify a filesystem path for use as a tmux window name."""
-    import os
     base = os.path.basename(os.path.abspath(path))
     s = base.lower()
     s = re.sub(r"[^a-z0-9_-]", "-", s)
@@ -19,7 +22,6 @@ def slug(path: str) -> str:
 
 def encode_project_dir(path: str) -> str:
     """Claude Code's on-disk convention for per-project dirs: `/` → `-`."""
-    import os
     abs_path = os.path.abspath(path)
     # Leading slash becomes a leading dash, other slashes too.
     return abs_path.replace("/", "-")
@@ -58,12 +60,11 @@ def parse_jsonl_tokens_today(jsonl_files: list[Path]) -> dict[str, int]:
     return {"input": total_in, "output": total_out}
 
 
-import os
-import subprocess
-
 _PROC = "/proc"  # overridable in tests
 
 SESSION_NAME = "ccx"
+
+_CLK_TCK = os.sysconf("SC_CLK_TCK") if hasattr(os, "sysconf") else 100
 
 
 def tmux_list_windows(session: str = SESSION_NAME) -> list[dict]:
@@ -116,7 +117,7 @@ def find_claude_pid(pane_pid: int) -> int | None:
                 comm = f.read().strip()
             if comm == "claude":
                 return pid
-        except FileNotFoundError:
+        except (FileNotFoundError, PermissionError):
             pass
         # Enqueue children from all threads
         try:
@@ -126,14 +127,12 @@ def find_claude_pid(pane_pid: int) -> int | None:
                     with open(f"{tasks_dir}/{tid}/children") as f:
                         for child in f.read().split():
                             to_visit.append(int(child))
-                except (FileNotFoundError, ValueError):
+                except (FileNotFoundError, PermissionError, ValueError):
                     continue
-        except FileNotFoundError:
+        except (FileNotFoundError, PermissionError):
             continue
     return None
 
-
-import time
 
 _NOW_FN = time.time
 _CLAUDE_PROJECTS_DIR = os.path.expanduser("~/.claude/projects")
@@ -167,8 +166,7 @@ def _process_uptime_seconds(pid: int) -> float | None:
         starttime_ticks = int(rest[19])
     except (IndexError, ValueError):
         return None
-    clk_tck = os.sysconf("SC_CLK_TCK") if hasattr(os, "sysconf") else 100
-    start_epoch = _BOOT_FN() + starttime_ticks / clk_tck
+    start_epoch = _BOOT_FN() + starttime_ticks / _CLK_TCK
     return _NOW_FN() - start_epoch
 
 
@@ -184,9 +182,12 @@ def collect_sessions() -> list[dict]:
     """Enumerate tmux windows in session `ccx`, enrich each with claude + tokens."""
     out: list[dict] = []
     for row in tmux_list_windows():
-        claude_pid = find_claude_pid(row["pane_pid"])
-        uptime = _process_uptime_seconds(claude_pid) if claude_pid else None
-        tokens = parse_jsonl_tokens_today(_project_jsonl_files(row["cwd"]))
+        try:
+            claude_pid = find_claude_pid(row["pane_pid"])
+            uptime = _process_uptime_seconds(claude_pid) if claude_pid else None
+            tokens = parse_jsonl_tokens_today(_project_jsonl_files(row["cwd"]))
+        except Exception:
+            claude_pid, uptime, tokens = None, None, {"input": 0, "output": 0}
         out.append({
             "slug": row["slug"],
             "cwd": row["cwd"],
@@ -197,9 +198,6 @@ def collect_sessions() -> list[dict]:
         })
     return out
 
-
-import json as _json
-import typer
 
 app = typer.Typer(help="Manage project-anchored claude sessions on ccx.")
 
@@ -248,7 +246,7 @@ def cmd_list(
     """List sessions with claude pid, uptime, today's tokens."""
     rows = collect_sessions()
     if as_json:
-        typer.echo(_json.dumps(rows, default=str))
+        typer.echo(json.dumps(rows, default=str))
         return
     if not rows:
         typer.echo("(no sessions)")
@@ -267,10 +265,8 @@ def cmd_list(
 @app.command("attach")
 def cmd_attach(slug_: str = typer.Argument(None, help="Window slug. Default: MRU.")):
     """Attach to the shared ccx tmux session, optionally selecting a window."""
-    if slug_:
-        os.execvp("tmux", ["tmux", "attach-session", "-t", SESSION_NAME, ";", "select-window", "-t", slug_])
-    else:
-        os.execvp("tmux", ["tmux", "attach-session", "-t", SESSION_NAME])
+    target = f"{SESSION_NAME}:{slug_}" if slug_ else SESSION_NAME
+    os.execvp("tmux", ["tmux", "attach-session", "-t", target])
 
 
 @app.command("kill")
