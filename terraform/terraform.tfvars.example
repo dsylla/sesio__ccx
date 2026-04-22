@@ -1,0 +1,4 @@
+# Copy to terraform.tfvars and edit.
+# terraform.tfvars is gitignored.
+
+admin_cidr = "1.2.3.4/32"   # your current public /32

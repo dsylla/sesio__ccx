@@ -1,0 +1,38 @@
+#!/bin/bash
+set -euxo pipefail
+exec > >(tee -a /var/log/ccx-user-data.log) 2>&1
+
+HOME_DEV_ID="nvme-Amazon_Elastic_Block_Store_vol-${home_volume_id_stripped}"
+HOME_DEV_PATH="/dev/disk/by-id/$${HOME_DEV_ID}"
+
+# Wait up to 120s for the home volume to appear as a by-id node.
+for i in $(seq 1 60); do
+  if [ -e "$${HOME_DEV_PATH}" ]; then break; fi
+  sleep 2
+done
+test -e "$${HOME_DEV_PATH}" || { echo "home volume never appeared"; exit 1; }
+
+# Format if blank (reattached volumes keep their filesystem).
+if ! blkid "$${HOME_DEV_PATH}" >/dev/null 2>&1; then
+  mkfs.ext4 -L ccx-home "$${HOME_DEV_PATH}"
+fi
+
+mkdir -p /home
+grep -q "$${HOME_DEV_ID}" /etc/fstab || \
+  echo "$${HOME_DEV_PATH} /home ext4 defaults,nofail,x-systemd.device-timeout=30 0 2" >> /etc/fstab
+mountpoint -q /home || mount /home
+
+# Base packages for clone + ansible-pull.
+apt-get update
+DEBIAN_FRONTEND=noninteractive apt-get install -y git ansible python3 python3-pip
+
+# Clone the (public) repo into a root-owned cache and run the playbook.
+REPO_CACHE=/opt/sesio__ccx
+if [ ! -d "$${REPO_CACHE}/.git" ]; then
+  git clone "${repo_url}" "$${REPO_CACHE}"
+else
+  git -C "$${REPO_CACHE}" pull --ff-only
+fi
+
+cd "$${REPO_CACHE}/ansible"
+ansible-playbook -i inventory site.yml 2>&1 | tee /var/log/ansible-pull.log
