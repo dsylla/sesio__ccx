@@ -56,3 +56,29 @@
     depth: 1
     version: main
   ignore_errors: true
+
+# .zshrc uses both oh-my-zsh AND zplug (see dotfiles/.zshrc:538-556).
+# The installer.zsh URL 404s; clone directly and pin to the latest tag.
+- name: Install zplug
+  become_user: "{{ target_user }}"
+  become: true
+  ansible.builtin.git:
+    repo: https://github.com/zplug/zplug.git
+    dest: "{{ target_home }}/.zplug"
+    version: "2.4.2"
+    depth: 1
+
+# Alacritty's terminfo (TERM=alacritty) isn't in any Debian package.
+# Ship the compiled-on-laptop .info file and compile it into /etc/terminfo.
+- name: Copy alacritty terminfo source
+  ansible.builtin.copy:
+    src: alacritty.info
+    dest: /usr/local/share/alacritty.info
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Install alacritty terminfo into /etc/terminfo
+  ansible.builtin.command: tic -x -o /etc/terminfo /usr/local/share/alacritty.info
+  args:
+    creates: /etc/terminfo/a/alacritty
