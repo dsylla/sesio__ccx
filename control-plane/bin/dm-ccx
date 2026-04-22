@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Bind to e.g. mod+c c in qtile; invokes ccxctl menu.
+# Bound to [Super]+p, x in qtile; invokes ccxctl menu.
 set -euo pipefail
 export PATH="$HOME/.local/bin:$PATH"
 exec ccxctl menu

@@ -1,4 +1,4 @@
-# ccxctl + dmenu-ccx
+# ccxctl + dm-ccx
 
 Bash control plane for the ccx coding station. Reads instance ID from
 `~/.config/ccx/instance_id` (written by `terraform apply`).
@@ -7,7 +7,7 @@ Bash control plane for the ccx coding station. Reads instance ID from
 
 ```bash
 ln -sf $(pwd)/bin/ccxctl    ~/.local/bin/ccxctl
-ln -sf $(pwd)/bin/dmenu-ccx ~/.local/bin/dmenu-ccx
+ln -sf $(pwd)/bin/dm-ccx ~/.local/bin/dm-ccx
 ```
 
 ## Subcommands
