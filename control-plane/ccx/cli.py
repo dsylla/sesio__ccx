@@ -424,8 +424,9 @@ def snapshot(
 @app.command()
 def menu() -> None:
     """State-aware rofi menu. Dispatches the chosen subcommand."""
-    inst = describe_instance()
-    state = inst["State"]["Name"]
+    # Fast path: the widget/caller may pass the known state via $CCX_STATE to
+    # save us a ~400 ms describe-instances round-trip before showing rofi.
+    state = os.environ.get("CCX_STATE") or describe_instance()["State"]["Name"]
 
     actions_by_state = {
         "running":       ["stop", "ssh", "refresh-sg", "refresh-dns", "snapshot", "status"],
