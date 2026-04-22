@@ -317,7 +317,22 @@ cmd_menu() {
   local choice
   choice=$(printf '%s\n' "${actions[@]}" | pick_menu "ccx ($state):") || return 0
   [[ -n "$choice" ]] || return 0
-  exec "$0" "$choice"
+
+  # `ssh` and `start` (which chains into ssh) need a real TTY, so spawn them
+  # inside a terminal. Everything else runs fine headlessly from rofi.
+  case "$choice" in
+    ssh)
+      nohup "${CCX_TERMINAL:-alacritty}" -e bash -lc "exec $0 ssh" >/dev/null 2>&1 &
+      disown || true
+      ;;
+    start)
+      nohup "${CCX_TERMINAL:-alacritty}" -e bash -lc "$0 start >/dev/null 2>&1; exec $0 ssh" >/dev/null 2>&1 &
+      disown || true
+      ;;
+    *)
+      exec "$0" "$choice"
+      ;;
+  esac
 }
 
 # --- subcommand dispatch --------------------------------------------------
