@@ -56,3 +56,78 @@ def parse_jsonl_tokens_today(jsonl_files: list[Path]) -> dict[str, int]:
         except FileNotFoundError:
             continue
     return {"input": total_in, "output": total_out}
+
+
+import os
+import subprocess
+
+_PROC = "/proc"  # overridable in tests
+
+SESSION_NAME = "ccx"
+
+
+def tmux_list_windows(session: str = SESSION_NAME) -> list[dict]:
+    """Return the rows of `tmux list-windows` as dicts. Empty if session absent."""
+    fmt = "#{window_name}|#{window_activity}|#{pane_current_path}|#{pane_pid}"
+    result = subprocess.run(
+        ["tmux", "list-windows", "-t", session, "-F", fmt],
+        capture_output=True, text=True, check=False, timeout=3,
+    )
+    if result.returncode != 0:
+        return []
+    rows: list[dict] = []
+    for line in result.stdout.strip().splitlines():
+        parts = line.split("|")
+        if len(parts) != 4:
+            continue
+        name, activity, cwd, pid = parts
+        try:
+            rows.append({
+                "slug": name,
+                "activity": int(activity),
+                "cwd": cwd,
+                "pane_pid": int(pid),
+            })
+        except ValueError:
+            continue
+    return rows
+
+
+def tmux_has_window(slug_: str, session: str = SESSION_NAME) -> bool:
+    result = subprocess.run(
+        ["tmux", "has-session", "-t", f"{session}:{slug_}"],
+        capture_output=True, text=True, check=False, timeout=3,
+    )
+    return result.returncode == 0
+
+
+def find_claude_pid(pane_pid: int) -> int | None:
+    """Walk /proc descendants of pane_pid; return the first one whose comm is 'claude'."""
+    to_visit = [pane_pid]
+    seen: set[int] = set()
+    while to_visit:
+        pid = to_visit.pop()
+        if pid in seen:
+            continue
+        seen.add(pid)
+        # Check comm
+        try:
+            with open(f"{_PROC}/{pid}/comm") as f:
+                comm = f.read().strip()
+            if comm == "claude":
+                return pid
+        except FileNotFoundError:
+            pass
+        # Enqueue children from all threads
+        try:
+            tasks_dir = f"{_PROC}/{pid}/task"
+            for tid in os.listdir(tasks_dir):
+                try:
+                    with open(f"{tasks_dir}/{tid}/children") as f:
+                        for child in f.read().split():
+                            to_visit.append(int(child))
+                except (FileNotFoundError, ValueError):
+                    continue
+        except FileNotFoundError:
+            continue
+    return None

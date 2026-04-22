@@ -56,3 +56,76 @@ def test_parse_jsonl_tokens_today_handles_missing_keys(tmp_path: Path):
 def test_parse_jsonl_tokens_today_no_files():
     from ccx.sessions import parse_jsonl_tokens_today
     assert parse_jsonl_tokens_today([]) == {"input": 0, "output": 0}
+
+
+from unittest.mock import patch, MagicMock
+import subprocess
+
+
+def _mock_run(stdout: str = "", returncode: int = 0):
+    m = MagicMock(spec=subprocess.CompletedProcess)
+    m.stdout = stdout
+    m.returncode = returncode
+    m.stderr = ""
+    return m
+
+
+def test_tmux_list_windows_parses_format():
+    from ccx.sessions import tmux_list_windows
+    raw = (
+        "ccx|1700000000|/home/david/Work/sesio/sesio__ccx|42\n"
+        "foo|1700000010|/home/david/Work/foo|100\n"
+    )
+    with patch("ccx.sessions.subprocess.run", return_value=_mock_run(raw)):
+        rows = tmux_list_windows()
+    assert rows == [
+        {"slug": "ccx", "activity": 1700000000, "cwd": "/home/david/Work/sesio/sesio__ccx", "pane_pid": 42},
+        {"slug": "foo", "activity": 1700000010, "cwd": "/home/david/Work/foo", "pane_pid": 100},
+    ]
+
+
+def test_tmux_list_windows_no_session_returns_empty():
+    from ccx.sessions import tmux_list_windows
+    err = _mock_run("", returncode=1)
+    err.stderr = "no server running on /tmp/tmux-1000/default"
+    with patch("ccx.sessions.subprocess.run", return_value=err):
+        assert tmux_list_windows() == []
+
+
+def test_tmux_has_window_true():
+    from ccx.sessions import tmux_has_window
+    with patch("ccx.sessions.subprocess.run", return_value=_mock_run(returncode=0)):
+        assert tmux_has_window("ccx") is True
+
+
+def test_tmux_has_window_false():
+    from ccx.sessions import tmux_has_window
+    with patch("ccx.sessions.subprocess.run", return_value=_mock_run(returncode=1)):
+        assert tmux_has_window("ccx") is False
+
+
+def test_find_claude_pid_reads_proc(tmp_path, monkeypatch):
+    """Walk /proc/<pane_pid>/task/<tid>/children for a claude descendant."""
+    from ccx.sessions import find_claude_pid
+    # Build a fake /proc tree: pane=100 → child 101 (bash) → child 102 (claude)
+    proc = tmp_path / "proc"
+    (proc / "100/task/100").mkdir(parents=True)
+    (proc / "100/task/100/children").write_text("101 ")
+    (proc / "101/task/101").mkdir(parents=True)
+    (proc / "101/task/101/children").write_text("102 ")
+    (proc / "101/comm").write_text("bash\n")
+    (proc / "102/task/102").mkdir(parents=True)
+    (proc / "102/task/102/children").write_text("")
+    (proc / "102/comm").write_text("claude\n")
+    monkeypatch.setattr("ccx.sessions._PROC", str(proc))
+    assert find_claude_pid(100) == 102
+
+
+def test_find_claude_pid_none_when_absent(tmp_path, monkeypatch):
+    from ccx.sessions import find_claude_pid
+    proc = tmp_path / "proc"
+    (proc / "100/task/100").mkdir(parents=True)
+    (proc / "100/task/100/children").write_text("")
+    (proc / "100/comm").write_text("bash\n")
+    monkeypatch.setattr("ccx.sessions._PROC", str(proc))
+    assert find_claude_pid(100) is None
