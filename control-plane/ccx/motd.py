@@ -104,3 +104,165 @@ def service_dot(state: str) -> str:
     if state in ("inactive", "dead"):
         return f"{C.DIM}○{C.RESET}"
     return f"{C.YELLOW}◐{C.RESET}"
+
+
+import subprocess
+import time
+import urllib.request
+from pathlib import Path
+from typing import Any, Optional
+
+_PROC = "/proc"
+_SLEEP = time.sleep
+_DISK_FN = shutil.disk_usage
+_SUBPROC_TIMEOUT = 3
+
+
+def _read_cpu_pct() -> float:
+    def _sample():
+        with open(f"{_PROC}/stat") as f:
+            parts = f.readline().split()
+        idle = int(parts[4])
+        total = sum(int(x) for x in parts[1:])
+        return idle, total
+    try:
+        i1, t1 = _sample()
+        _SLEEP(0.5)
+        i2, t2 = _sample()
+        d_idle = i2 - i1
+        d_total = t2 - t1
+        if d_total <= 0:
+            return 0.0
+        return round((1.0 - d_idle / d_total) * 100, 0)
+    except (OSError, IndexError, ValueError):
+        return 0.0
+
+
+def collect_system() -> Optional[dict[str, Any]]:
+    try:
+        import socket
+        with open(f"{_PROC}/uptime") as f:
+            uptime_s = float(f.read().split()[0])
+        info: dict[str, int] = {}
+        with open(f"{_PROC}/meminfo") as f:
+            for line in f:
+                p = line.split()
+                if p[0] in ("MemTotal:", "MemAvailable:"):
+                    info[p[0]] = int(p[1])
+                if len(info) == 2:
+                    break
+        ram_pct = round((1 - info["MemAvailable:"] / info["MemTotal:"]) * 100)
+        disk = _DISK_FN("/")
+        return {
+            "hostname": socket.gethostname(),
+            "uptime": format_uptime(uptime_s),
+            "cpu_pct": int(_read_cpu_pct()),
+            "ram_pct": ram_pct,
+            "disk_used": format_bytes(disk.used),
+            "disk_total": format_bytes(disk.total),
+            "disk_pct": round(disk.used / disk.total * 100),
+        }
+    except Exception:
+        return None
+
+
+_IMDS = "http://169.254.169.254/latest"
+
+
+def _imds_token() -> Optional[str]:
+    req = urllib.request.Request(
+        f"{_IMDS}/api/token",
+        method="PUT",
+        headers={"X-aws-ec2-metadata-token-ttl-seconds": "60"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=2) as resp:
+            return resp.read().decode().strip()
+    except Exception:
+        return None
+
+
+def _imds_get(path: str, token: str) -> Optional[str]:
+    req = urllib.request.Request(
+        f"{_IMDS}/meta-data/{path}",
+        headers={"X-aws-ec2-metadata-token": token},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=2) as resp:
+            return resp.read().decode().strip()
+    except Exception:
+        return None
+
+
+def collect_instance() -> Optional[dict[str, Any]]:
+    token = _imds_token()
+    if not token:
+        return None
+    keys = {
+        "instance_id":     "instance-id",
+        "instance_type":   "instance-type",
+        "region":          "placement/region",
+        "az":              "placement/availability-zone",
+        "public_ip":       "public-ipv4",
+        "public_hostname": "public-hostname",
+    }
+    return {k: _imds_get(v, token) for k, v in keys.items()}
+
+
+CCX_SERVICES = ["docker", "ssh", "fail2ban", "unattended-upgrades"]
+
+
+def collect_services() -> Optional[dict[str, Any]]:
+    try:
+        services: list[tuple[str, str]] = []
+        for svc in CCX_SERVICES:
+            try:
+                r = subprocess.run(
+                    ["/usr/bin/systemctl", "is-active", f"{svc}.service"],
+                    capture_output=True, text=True, timeout=_SUBPROC_TIMEOUT,
+                )
+                state = r.stdout.strip() or "unknown"
+            except (subprocess.TimeoutExpired, OSError):
+                state = "unknown"
+            services.append((svc, state))
+        return {"services": services}
+    except Exception:
+        return None
+
+
+def _git_sha(repo_dir: str) -> Optional[str]:
+    try:
+        r = subprocess.run(
+            ["git", "-C", repo_dir, "rev-parse", "--short", "HEAD"],
+            capture_output=True, text=True, timeout=_SUBPROC_TIMEOUT,
+        )
+        return r.stdout.strip() or None
+    except (subprocess.TimeoutExpired, OSError):
+        return None
+
+
+def _git_behind(repo_dir: str) -> int:
+    try:
+        r = subprocess.run(
+            ["git", "-C", repo_dir, "rev-list", "--count", "HEAD..@{u}"],
+            capture_output=True, text=True, timeout=_SUBPROC_TIMEOUT,
+        )
+        return int(r.stdout.strip() or 0)
+    except (subprocess.TimeoutExpired, OSError, ValueError):
+        return 0
+
+
+DOTFILES_REPOS = {
+    "sesio__ccx":    "/home/david/sesio__ccx",
+    "claude-config": "/home/david/claude-config",
+}
+
+
+def collect_dotfiles() -> Optional[dict[str, Any]]:
+    out = {}
+    for name, path in DOTFILES_REPOS.items():
+        sha = _git_sha(path)
+        if sha is None:
+            continue
+        out[name] = {"sha": sha, "behind": _git_behind(path)}
+    return out or None
