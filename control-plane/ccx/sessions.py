@@ -168,9 +168,8 @@ def _process_uptime_seconds(pid: int) -> float | None:
     except (IndexError, ValueError):
         return None
     clk_tck = os.sysconf("SC_CLK_TCK") if hasattr(os, "sysconf") else 100
-    # _NOW_FN returns current time in the same tick unit as starttime_ticks;
-    # _BOOT_FN is available for callers that need absolute epoch anchoring.
-    return (_NOW_FN() - starttime_ticks) / clk_tck
+    start_epoch = _BOOT_FN() + starttime_ticks / clk_tck
+    return _NOW_FN() - start_epoch
 
 
 def _project_jsonl_files(cwd: str) -> list[Path]:

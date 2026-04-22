@@ -144,10 +144,10 @@ def test_collect_sessions_happy_path(tmp_path, monkeypatch):
     (proc / "102/task/102/children").write_text("")
     (proc / "102/comm").write_text("claude\n")
     (proc / "102/stat").write_text(
-        "102 (claude) S " + "0 " * 18 + "1000 " + "0 " * 30
-    )  # 22nd field = starttime (in ticks since boot)
+        "102 (claude) S " + "0 " * 18 + "50000 " + "0 " * 30
+    )  # field 22 = starttime_ticks = 500 * 100
     monkeypatch.setattr("ccx.sessions._PROC", str(proc))
-    monkeypatch.setattr("ccx.sessions._NOW_FN", lambda: 2000)
+    monkeypatch.setattr("ccx.sessions._NOW_FN", lambda: 1700)
     monkeypatch.setattr("ccx.sessions._BOOT_FN", lambda: 1000)
 
     # Fake claude_projects_dir → no jsonl → zero tokens
@@ -168,7 +168,7 @@ def test_collect_sessions_happy_path(tmp_path, monkeypatch):
         "cwd": "/home/david/Work/sesio/ccx",
         "pane_pid": 42,
         "claude_pid": 102,
-        "uptime_seconds": pytest.approx(1000 / 100, abs=1),  # (2000-1000)/clk_tck
+        "uptime_seconds": pytest.approx(200, abs=1),  # now(1700) - (boot(1000) + 50000/100)
         "tokens_today": {"input": 0, "output": 0},
     }]
 
