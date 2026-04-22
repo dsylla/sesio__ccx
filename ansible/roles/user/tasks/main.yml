@@ -2,12 +2,13 @@
 - name: Create target user
   ansible.builtin.user:
     name: "{{ target_user }}"
-    uid: "{{ target_uid }}"
     shell: /bin/bash   # zsh role flips this after zsh is installed
     groups: sudo
     append: yes
     create_home: yes
     home: "{{ target_home }}"
+    # UID not pinned: the Debian 12 AMI already owns UID 1000 (admin user).
+    # Let useradd pick the next free UID; dotfiles are symlinks so UID-agnostic.
 
 - name: Passwordless sudo for target_user
   ansible.builtin.copy:

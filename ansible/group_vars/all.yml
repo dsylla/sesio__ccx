@@ -1,6 +1,5 @@
 ---
 target_user: david
-target_uid: 1000
 target_home: /home/david
 target_shell: /usr/bin/zsh
 aws_region: eu-west-1
