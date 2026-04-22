@@ -1,0 +1,327 @@
+#!/usr/bin/env bash
+# ccxctl - control plane for the ccx coding station
+set -euo pipefail
+
+# --- config ---------------------------------------------------------------
+: "${AWS_PROFILE:=sesio__euwest1}"
+export AWS_PROFILE
+REGION="${AWS_REGION:-eu-west-1}"
+HOSTNAME_FQDN="${CCX_HOSTNAME:-ccx.dsylla.sesio.io}"
+HOSTED_ZONE="${CCX_HOSTED_ZONE:-sesio.io.}"
+INSTANCE_ID_FILE="${CCX_INSTANCE_ID_FILE:-$HOME/.config/ccx/instance_id}"
+WIDGET_NAME="${CCX_WIDGET_NAME:-ccx_status}"
+LOG_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/ccx"
+mkdir -p "$LOG_DIR"
+
+# --- helpers --------------------------------------------------------------
+log()    { printf '%s\n' "$*"; }
+notify() { command -v notify-send >/dev/null && notify-send "$@" || true; }
+die()    { log "error: $*" >&2; notify -u critical "ccx error" "$*"; exit 1; }
+
+instance_id() {
+  [[ -r "$INSTANCE_ID_FILE" ]] || die "instance id file missing: $INSTANCE_ID_FILE"
+  cat "$INSTANCE_ID_FILE"
+}
+
+aws_ec2() { aws ec2 --region "$REGION" --output json "$@"; }
+aws_r53() { aws route53 --output json "$@"; }
+
+refresh_widget() {
+  command -v qtile >/dev/null || return 0
+  qtile cmd-obj -o widget "$WIDGET_NAME" -f force_update 2>/dev/null || true
+}
+
+# Update the Route 53 A record to the instance's current public IP.
+# Needed on every `start` because the instance has no EIP in v1 (account quota).
+update_dns() {
+  local id ip zone_id
+  id=$(instance_id)
+  ip=$(aws_ec2 describe-instances --instance-ids "$id" \
+    --query 'Reservations[0].Instances[0].PublicIpAddress' --output text)
+  [[ -n "$ip" && "$ip" != None ]] || die "instance has no public IP"
+
+  zone_id=$(aws_r53 list-hosted-zones-by-name --dns-name "$HOSTED_ZONE" \
+    --query 'HostedZones[0].Id' --output text | sed 's|/hostedzone/||')
+  [[ -n "$zone_id" ]] || die "hosted zone $HOSTED_ZONE not found"
+
+  log "pointing $HOSTNAME_FQDN at $ip (zone $zone_id)"
+  aws_r53 change-resource-record-sets \
+    --hosted-zone-id "$zone_id" \
+    --change-batch "{
+      \"Changes\": [{
+        \"Action\": \"UPSERT\",
+        \"ResourceRecordSet\": {
+          \"Name\": \"${HOSTNAME_FQDN}.\",
+          \"Type\": \"A\",
+          \"TTL\": 60,
+          \"ResourceRecords\": [{\"Value\": \"${ip}\"}]
+        }
+      }]
+    }" >/dev/null
+}
+
+usage() {
+  cat <<'EOF'
+ccxctl — control the ccx coding station
+
+Usage: ccxctl <subcommand> [args]
+
+  status              Print state, type, ip, uptime, instance id
+  start               Start the instance, update DNS, wait for running
+  stop                Stop the instance, wait for stopped
+  ssh [args...]       SSH to the hostname (passes args through to ssh)
+  refresh-sg          Update SG ingress to current public /32
+  refresh-dns         Force-update Route 53 A record to instance's public IP
+  resize [TYPE]       Change instance type (stopped state only).
+                      No TYPE → dmenu of common types.
+  grow-home [GB]      Grow home volume; resize2fs over SSH. No GB → dmenu.
+  grow-root [GB]      Grow root volume; growpart + resize2fs over SSH. No GB → dmenu.
+  snapshot [NOTE]     Snapshot the home volume, tagged with date + NOTE.
+  menu                State-aware dmenu; re-execs self with chosen subcommand.
+
+Env overrides:
+  AWS_PROFILE=sesio__euwest1
+  AWS_REGION=eu-west-1
+  CCX_HOSTNAME=ccx.dsylla.sesio.io
+  CCX_HOSTED_ZONE=sesio.io.
+  CCX_INSTANCE_ID_FILE=~/.config/ccx/instance_id
+  CCX_WIDGET_NAME=ccx_status
+EOF
+}
+
+# --- subcommand functions -------------------------------------------------
+
+cmd_status() {
+  local id; id=$(instance_id)
+  local json; json=$(aws_ec2 describe-instances --instance-ids "$id" --query 'Reservations[0].Instances[0]')
+  local state launch type ip
+  state=$(jq -r '.State.Name'          <<<"$json")
+  launch=$(jq -r '.LaunchTime // ""'   <<<"$json")
+  type=$(jq -r '.InstanceType'         <<<"$json")
+  ip=$(jq -r '.PublicIpAddress // "-"' <<<"$json")
+
+  local uptime=""
+  if [[ "$state" == "running" && -n "$launch" ]]; then
+    local secs
+    secs=$(( $(date +%s) - $(date -d "$launch" +%s) ))
+    printf -v uptime '%dh%02dm' $((secs/3600)) $((secs%3600/60))
+  fi
+
+  printf '%s %s %s %s %s\n' "$state" "$type" "$ip" "$uptime" "$id"
+}
+
+cmd_start() {
+  local id; id=$(instance_id)
+  log "starting $id ..."
+  aws_ec2 start-instances --instance-ids "$id" >/dev/null
+  aws ec2 --region "$REGION" wait instance-running --instance-ids "$id"
+  update_dns
+  refresh_widget
+  notify "ccx" "instance started"
+  cmd_status
+}
+
+cmd_stop() {
+  local id; id=$(instance_id)
+  log "stopping $id ..."
+  aws_ec2 stop-instances --instance-ids "$id" >/dev/null
+  aws ec2 --region "$REGION" wait instance-stopped --instance-ids "$id"
+  refresh_widget
+  notify "ccx" "instance stopped"
+  cmd_status
+}
+
+cmd_ssh() {
+  exec ssh "david@${HOSTNAME_FQDN}" "$@"
+}
+
+cmd_refresh_sg() {
+  local id; id=$(instance_id)
+  local sg_id
+  sg_id=$(aws_ec2 describe-instances --instance-ids "$id" \
+    --query 'Reservations[0].Instances[0].SecurityGroups[0].GroupId' --output text)
+
+  local new_cidr
+  new_cidr="$(curl -fsSL https://checkip.amazonaws.com | tr -d '[:space:]')/32"
+  [[ "$new_cidr" =~ ^[0-9.]+/32$ ]] || die "could not discover public ip"
+  log "current public ip: $new_cidr"
+
+  local existing
+  existing=$(aws_ec2 describe-security-groups --group-ids "$sg_id" \
+    --query 'SecurityGroups[0].IpPermissions[?FromPort==`22`].IpRanges[].CidrIp' --output text)
+
+  for c in $existing; do
+    if [[ "$c" != "$new_cidr" ]]; then
+      log "revoking stale cidr $c"
+      aws_ec2 revoke-security-group-ingress --group-id "$sg_id" \
+        --protocol tcp --port 22 --cidr "$c" >/dev/null
+    fi
+  done
+
+  if ! grep -qxF "$new_cidr" <<<"$existing"; then
+    log "authorizing $new_cidr"
+    aws_ec2 authorize-security-group-ingress --group-id "$sg_id" \
+      --protocol tcp --port 22 --cidr "$new_cidr" >/dev/null
+  fi
+
+  notify "ccx" "SG refreshed to $new_cidr"
+}
+
+cmd_refresh_dns() {
+  update_dns
+  notify "ccx" "DNS refreshed for $HOSTNAME_FQDN"
+}
+
+COMMON_TYPES=(t4g.small t4g.medium t4g.large t4g.xlarge t4g.2xlarge c7g.xlarge c7g.2xlarge c7g.4xlarge m7g.xlarge m7g.2xlarge r7g.xlarge)
+
+cmd_resize() {
+  local id; id=$(instance_id)
+  local new_type="${1:-}"
+  if [[ -z "$new_type" ]]; then
+    new_type=$(printf '%s\n' "${COMMON_TYPES[@]}" | dmenu -p "ccx resize:") || return 0
+  fi
+  [[ -n "$new_type" ]] || die "no instance type chosen"
+
+  local state
+  state=$(aws_ec2 describe-instances --instance-ids "$id" --query 'Reservations[0].Instances[0].State.Name' --output text)
+  [[ "$state" == "stopped" ]] || die "resize requires stopped state (currently: $state)"
+
+  log "resizing $id -> $new_type"
+  aws_ec2 modify-instance-attribute --instance-id "$id" --instance-type "{\"Value\":\"$new_type\"}" >/dev/null
+  notify "ccx" "resized to $new_type"
+}
+
+cmd_grow_home() {
+  local id; id=$(instance_id)
+  local new_gb="${1:-}"
+  if [[ -z "$new_gb" ]]; then
+    new_gb=$(printf '%s\n' 150 200 300 500 750 1000 | dmenu -p "ccx grow home GB:") || return 0
+  fi
+  [[ "$new_gb" =~ ^[0-9]+$ ]] || die "invalid size: $new_gb"
+
+  local vol_id
+  vol_id=$(aws_ec2 describe-instances --instance-ids "$id" \
+    --query "Reservations[0].Instances[0].BlockDeviceMappings[?DeviceName=='/dev/sdh'].Ebs.VolumeId" \
+    --output text)
+  [[ -n "$vol_id" && "$vol_id" != None ]] || die "home volume not found at /dev/sdh"
+
+  local current
+  current=$(aws_ec2 describe-volumes --volume-ids "$vol_id" --query 'Volumes[0].Size' --output text)
+  (( new_gb > current )) || die "requested size $new_gb GB <= current $current GB"
+
+  log "growing $vol_id: $current -> $new_gb GB"
+  aws_ec2 modify-volume --volume-id "$vol_id" --size "$new_gb" >/dev/null
+
+  while :; do
+    local mstate
+    mstate=$(aws_ec2 describe-volumes-modifications --volume-ids "$vol_id" \
+      --query 'VolumesModifications[0].ModificationState' --output text 2>/dev/null || echo "")
+    [[ "$mstate" != "modifying" ]] && break
+    sleep 5
+  done
+
+  local stripped="${vol_id#vol-}"
+  ssh "david@${HOSTNAME_FQDN}" "sudo resize2fs /dev/disk/by-id/nvme-Amazon_Elastic_Block_Store_vol-${stripped}"
+  notify "ccx" "home grown to $new_gb GB"
+}
+
+cmd_grow_root() {
+  local id; id=$(instance_id)
+  local new_gb="${1:-}"
+  if [[ -z "$new_gb" ]]; then
+    new_gb=$(printf '%s\n' 40 50 60 80 100 | dmenu -p "ccx grow root GB:") || return 0
+  fi
+  [[ "$new_gb" =~ ^[0-9]+$ ]] || die "invalid size: $new_gb"
+
+  local root_dev vol_id
+  root_dev=$(aws_ec2 describe-instances --instance-ids "$id" \
+    --query 'Reservations[0].Instances[0].RootDeviceName' --output text)
+  vol_id=$(aws_ec2 describe-instances --instance-ids "$id" \
+    --query "Reservations[0].Instances[0].BlockDeviceMappings[?DeviceName=='${root_dev}'].Ebs.VolumeId" \
+    --output text)
+  [[ -n "$vol_id" ]] || die "root volume not found"
+
+  local current
+  current=$(aws_ec2 describe-volumes --volume-ids "$vol_id" --query 'Volumes[0].Size' --output text)
+  (( new_gb > current )) || die "requested size $new_gb GB <= current $current GB"
+
+  log "growing root $vol_id: $current -> $new_gb GB"
+  aws_ec2 modify-volume --volume-id "$vol_id" --size "$new_gb" >/dev/null
+
+  while :; do
+    local mstate
+    mstate=$(aws_ec2 describe-volumes-modifications --volume-ids "$vol_id" \
+      --query 'VolumesModifications[0].ModificationState' --output text 2>/dev/null || echo "")
+    [[ "$mstate" != "modifying" ]] && break
+    sleep 5
+  done
+
+  ssh "david@${HOSTNAME_FQDN}" "sudo growpart /dev/nvme0n1 1 && sudo resize2fs /dev/nvme0n1p1"
+  notify "ccx" "root grown to $new_gb GB"
+}
+
+cmd_snapshot() {
+  local id; id=$(instance_id)
+  local note="${1:-manual}"
+
+  local vol_id
+  vol_id=$(aws_ec2 describe-instances --instance-ids "$id" \
+    --query "Reservations[0].Instances[0].BlockDeviceMappings[?DeviceName=='/dev/sdh'].Ebs.VolumeId" \
+    --output text)
+  [[ -n "$vol_id" && "$vol_id" != None ]] || die "home volume not found"
+
+  local date_tag; date_tag=$(date -u +%Y-%m-%d-%H%M%S)
+  log "snapshotting $vol_id ..."
+  local snap_id
+  snap_id=$(aws_ec2 create-snapshot --volume-id "$vol_id" \
+    --description "ccx home snapshot $date_tag: $note" \
+    --tag-specifications "ResourceType=snapshot,Tags=[{Key=Project,Value=ccx},{Key=Date,Value=$date_tag},{Key=Note,Value=$note}]" \
+    --query 'SnapshotId' --output text)
+  log "$snap_id"
+  notify "ccx" "snapshot started: $snap_id"
+}
+
+cmd_menu() {
+  local id; id=$(instance_id)
+  local state
+  state=$(aws_ec2 describe-instances --instance-ids "$id" --query 'Reservations[0].Instances[0].State.Name' --output text)
+
+  local -a actions
+  case "$state" in
+    running)
+      actions=(stop ssh refresh-sg refresh-dns snapshot status)
+      ;;
+    stopped)
+      actions=(start resize grow-home grow-root snapshot status)
+      ;;
+    pending|stopping|shutting-down)
+      actions=(status)
+      ;;
+    *)
+      actions=(status)
+      ;;
+  esac
+
+  local choice
+  choice=$(printf '%s\n' "${actions[@]}" | dmenu -p "ccx ($state):") || return 0
+  [[ -n "$choice" ]] || return 0
+  exec "$0" "$choice"
+}
+
+# --- subcommand dispatch --------------------------------------------------
+cmd="${1:-}"; shift || true
+case "$cmd" in
+  ""|-h|--help|help) usage ;;
+  status)       cmd_status "$@" ;;
+  start)        cmd_start "$@" ;;
+  stop)         cmd_stop "$@" ;;
+  ssh)          cmd_ssh "$@" ;;
+  refresh-sg)   cmd_refresh_sg "$@" ;;
+  refresh-dns)  cmd_refresh_dns "$@" ;;
+  resize)       cmd_resize "$@" ;;
+  grow-home)    cmd_grow_home "$@" ;;
+  grow-root)    cmd_grow_root "$@" ;;
+  snapshot)     cmd_snapshot "$@" ;;
+  menu)         cmd_menu "$@" ;;
+  *)            usage; exit 2 ;;
+esac
