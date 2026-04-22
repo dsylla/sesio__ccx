@@ -197,3 +197,102 @@ def collect_sessions() -> list[dict]:
             "tokens_today": tokens,
         })
     return out
+
+
+import json as _json
+import typer
+
+app = typer.Typer(help="Manage project-anchored claude sessions on ccx.")
+
+
+def _ensure_session() -> None:
+    """Create the shared tmux session if it doesn't exist."""
+    subprocess.run(
+        ["tmux", "new-session", "-d", "-s", SESSION_NAME],
+        capture_output=True, check=False, timeout=3,
+    )
+
+
+def _tmux_new_window(slug_: str, cwd: str) -> None:
+    subprocess.run(
+        ["tmux", "new-window", "-t", SESSION_NAME, "-n", slug_, "-c", cwd, "--", "claude"],
+        capture_output=True, check=False, timeout=5,
+    )
+
+
+def _tmux_kill_window(slug_: str) -> None:
+    subprocess.run(
+        ["tmux", "kill-window", "-t", f"{SESSION_NAME}:{slug_}"],
+        capture_output=True, check=False, timeout=3,
+    )
+
+
+@app.command("launch")
+def cmd_launch(
+    dir: str = typer.Option(".", "--dir", "-d", help="Project directory."),
+):
+    """Create (or attach) a tmux window for DIR running claude."""
+    path = os.path.abspath(os.path.expanduser(dir))
+    s = slug(path)
+    _ensure_session()
+    if tmux_has_window(s):
+        typer.echo(f"window {SESSION_NAME}:{s} already open")
+        return
+    _tmux_new_window(s, path)
+    typer.echo(f"launched {SESSION_NAME}:{s} (cwd={path})")
+
+
+@app.command("list")
+def cmd_list(
+    as_json: bool = typer.Option(False, "--json", help="Emit JSON."),
+):
+    """List sessions with claude pid, uptime, today's tokens."""
+    rows = collect_sessions()
+    if as_json:
+        typer.echo(_json.dumps(rows, default=str))
+        return
+    if not rows:
+        typer.echo("(no sessions)")
+        return
+    # Simple aligned table
+    typer.echo(f"{'SLUG':<20} {'PID':>8} {'UPTIME':>10} {'IN':>10} {'OUT':>10}  CWD")
+    for r in rows:
+        uptime = f"{int(r['uptime_seconds'] // 60)}m" if r.get("uptime_seconds") else "-"
+        pid = r["claude_pid"] or "-"
+        toks = r["tokens_today"]
+        typer.echo(
+            f"{r['slug']:<20} {str(pid):>8} {uptime:>10} {toks['input']:>10} {toks['output']:>10}  {r['cwd']}"
+        )
+
+
+@app.command("attach")
+def cmd_attach(slug_: str = typer.Argument(None, help="Window slug. Default: MRU.")):
+    """Attach to the shared ccx tmux session, optionally selecting a window."""
+    if slug_:
+        os.execvp("tmux", ["tmux", "attach-session", "-t", SESSION_NAME, ";", "select-window", "-t", slug_])
+    else:
+        os.execvp("tmux", ["tmux", "attach-session", "-t", SESSION_NAME])
+
+
+@app.command("kill")
+def cmd_kill(slug_: str = typer.Argument(..., help="Window slug.")):
+    """Kill a session window."""
+    _tmux_kill_window(slug_)
+    typer.echo(f"killed {SESSION_NAME}:{slug_}")
+
+
+@app.command("menu")
+def cmd_menu():
+    """rofi-backed picker over existing sessions; attaches the selection."""
+    rows = collect_sessions()
+    if not rows:
+        typer.echo("(no sessions — use `ccxctl session launch --dir ...`)")
+        raise typer.Exit(code=0)
+    items = [f"{r['slug']}  ({r['cwd']})" for r in rows]
+    # Reuse the same pick_menu helper from cli.py to stay DRY.
+    from ccx.cli import pick_menu
+    choice = pick_menu("ccx session:", items)
+    if not choice:
+        return
+    picked_slug = choice.split("  ")[0]
+    cmd_attach(picked_slug)

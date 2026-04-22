@@ -171,3 +171,67 @@ def test_collect_sessions_happy_path(tmp_path, monkeypatch):
         "uptime_seconds": pytest.approx(1000 / 100, abs=1),  # (2000-1000)/clk_tck
         "tokens_today": {"input": 0, "output": 0},
     }]
+
+
+from typer.testing import CliRunner
+
+
+def test_session_list_json_empty():
+    from ccx.sessions import app
+    with patch("ccx.sessions.collect_sessions", return_value=[]):
+        result = CliRunner().invoke(app, ["list", "--json"])
+    assert result.exit_code == 0
+    assert json.loads(result.stdout) == []
+
+
+def test_session_list_table_format():
+    from ccx.sessions import app
+    row = {
+        "slug": "ccx", "cwd": "/home/david/Work/sesio/ccx", "pane_pid": 42,
+        "claude_pid": 102, "uptime_seconds": 120.0,
+        "tokens_today": {"input": 100, "output": 50},
+    }
+    with patch("ccx.sessions.collect_sessions", return_value=[row]):
+        result = CliRunner().invoke(app, ["list"])
+    assert result.exit_code == 0
+    assert "ccx" in result.stdout
+    assert "100" in result.stdout  # input tokens
+    assert "50" in result.stdout   # output tokens
+
+
+def test_session_launch_creates_when_absent(tmp_path):
+    from ccx.sessions import app
+    calls: list[list[str]] = []
+
+    def fake_run(argv, **kwargs):
+        calls.append(argv)
+        # has-session returns 1 (absent) when asked, 0 otherwise
+        if "has-session" in argv:
+            return _mock_run(returncode=1)
+        return _mock_run(returncode=0)
+
+    with patch("ccx.sessions.subprocess.run", side_effect=fake_run):
+        result = CliRunner().invoke(app, ["launch", "--dir", str(tmp_path)])
+    assert result.exit_code == 0
+    # assert both new-session -d and new-window were called
+    assert any("new-session" in c and "-d" in c for c in calls)
+    assert any("new-window" in c for c in calls)
+
+
+def test_session_launch_attaches_when_present(tmp_path):
+    from ccx.sessions import app
+    # has-session returns 0 (present) → launch should NOT call new-window
+    with patch("ccx.sessions.subprocess.run", return_value=_mock_run(returncode=0)) as run:
+        result = CliRunner().invoke(app, ["launch", "--dir", str(tmp_path)])
+    assert result.exit_code == 0
+    argvs = [call.args[0] for call in run.call_args_list]
+    assert not any("new-window" in a for a in argvs)
+
+
+def test_session_kill_calls_tmux_kill_window():
+    from ccx.sessions import app
+    with patch("ccx.sessions.subprocess.run", return_value=_mock_run(returncode=0)) as run:
+        result = CliRunner().invoke(app, ["kill", "ccx"])
+    assert result.exit_code == 0
+    argvs = [call.args[0] for call in run.call_args_list]
+    assert any("kill-window" in a for a in argvs)
