@@ -44,7 +44,7 @@ class Config:
     ssh_key: Path = field(
         default_factory=lambda: Path(
             os.environ.get("CCX_SSH_KEY")
-            or os.path.expanduser("~/.ssh/keys/sesio-nodes")
+            or os.path.expanduser("~/.ssh/keys/dsylla-ccx")
         )
     )
     terminal: str = os.environ.get("CCX_TERMINAL", "alacritty")
