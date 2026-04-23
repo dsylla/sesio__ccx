@@ -9,11 +9,14 @@ fi
 # If you come from bash you might have to change your $PATH.
 # export PATH=$HOME/bin:/usr/local/bin:$PATH
 
-# Path to your oh-my-zsh installation.
-#installation via script from github
-#export ZSH="/home/$USER/.oh-my-zsh"
-#installation via paru -S oh-my-zsh-git
-export ZSH=/usr/share/oh-my-zsh/
+# Path to your oh-my-zsh installation — probe both layouts:
+#   /usr/share/oh-my-zsh  → Arch `paru -S oh-my-zsh-git` (desktop)
+#   ~/.oh-my-zsh          → upstream install.sh (Debian/Ubuntu/server)
+if [[ -r "/usr/share/oh-my-zsh/oh-my-zsh.sh" ]]; then
+  export ZSH=/usr/share/oh-my-zsh
+elif [[ -r "$HOME/.oh-my-zsh/oh-my-zsh.sh" ]]; then
+  export ZSH="$HOME/.oh-my-zsh"
+fi
 
 # Set name of the theme to load --- if set to "random", it will
 # load a random theme each time oh-my-zsh is loaded, in which case,
