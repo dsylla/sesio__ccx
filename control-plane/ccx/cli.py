@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import socket
 import subprocess
 import sys
 import time
@@ -382,14 +383,37 @@ def _wait_for_state(target: str, poll_seconds: float = 3.0,
     return ""  # unreachable
 
 
-def _ssh_attach_tmux() -> None:
-    """Replace the current process with `ssh … tmux new-session -A -s ccx`."""
+def _wait_for_ssh(host: str, port: int = 22, poll_seconds: float = 2.0,
+                  timeout_seconds: float = 180.0) -> None:
+    """TCP-probe host:port until reachable, then return.
+
+    EC2's `state=running` transition only means the hypervisor has powered
+    the guest on — sshd (and cloud-init) take another 15-60 s. Executing
+    ssh before port 22 is up just hangs in the TCP-connect timeout. We
+    probe here so the exec is only issued once the socket answers.
+    """
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline:
+        try:
+            with socket.create_connection((host, port), timeout=3):
+                return
+        except (OSError, socket.timeout):
+            time.sleep(poll_seconds)
+    die(f"timed out waiting for {host}:{port}")
+
+
+def _ssh_raw() -> None:
+    """Replace the current process with a plain `ssh`, no tmux wrapping.
+
+    `ccxctl start` uses this; users who want the shared tmux session
+    still have `ccxctl ssh` (the default) and the widget's "new session"
+    rofi entry.
+    """
     os.execvp("ssh", [
         "ssh", "-i", str(CFG.ssh_key),
         "-o", "IdentitiesOnly=yes",
         "-o", "StrictHostKeyChecking=accept-new",
         "-t", f"{CFG.ssh_user}@{CFG.hostname}",
-        "tmux", "new-session", "-A", "-s", "ccx",
     ])
 
 
@@ -428,13 +452,18 @@ def start(
 
     itype = inst.get("InstanceType", "?")
     _ok(f"ready — {_C.BOLD}{itype}{_C.RESET} {_C.BOLD}{ip}{_C.RESET}  {iid}")
-    notifier.done(f"✓ ready — {itype} {ip}")
 
     if no_ssh:
+        notifier.done(f"✓ ready — {itype} {ip}")
         return
 
-    _step(f"ssh {CFG.ssh_user}@{CFG.hostname} (shared tmux)")
-    _ssh_attach_tmux()
+    notifier.step(f"✓ ready — {itype} {ip}")
+    _step(f"waiting for sshd on {CFG.hostname}:22")
+    notifier.step("▶ waiting for sshd")
+    _wait_for_ssh(CFG.hostname)
+    _step(f"ssh {CFG.ssh_user}@{CFG.hostname} (raw)")
+    notifier.done("✓ ssh ready — connecting")
+    _ssh_raw()
 
 
 @app.command()
