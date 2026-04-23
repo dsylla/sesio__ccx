@@ -141,3 +141,30 @@
     dest: "{{ target_home }}/.claude/skills"
     state: link
     force: yes
+
+# --- install ccxctl on PATH + warm its uv venv ----------------------------
+# The motd hook at /etc/update-motd.d/10-ccx calls `$HOME/.local/bin/ccxctl`.
+# Without these tasks it silently no-ops (|| true) until manually fixed.
+- name: Ensure ~/.local/bin exists
+  become_user: "{{ target_user }}"
+  become: true
+  ansible.builtin.file:
+    path: "{{ target_home }}/.local/bin"
+    state: directory
+    mode: "0755"
+
+- name: Symlink ~/.local/bin/ccxctl -> sesio__ccx/control-plane/bin/ccxctl
+  become_user: "{{ target_user }}"
+  become: true
+  ansible.builtin.file:
+    src: "{{ repo_clone_path }}/control-plane/bin/ccxctl"
+    dest: "{{ target_home }}/.local/bin/ccxctl"
+    state: link
+    force: yes
+
+- name: Warm the ccx-cli uv venv so `ccxctl motd` is fast on first login
+  become_user: "{{ target_user }}"
+  become: true
+  ansible.builtin.command: /usr/bin/uv sync --no-dev --project "{{ repo_clone_path }}/control-plane"
+  args:
+    creates: "{{ repo_clone_path }}/control-plane/.venv/bin/python"
