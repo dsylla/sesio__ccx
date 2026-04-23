@@ -1,4 +1,31 @@
 ---
+- name: Set the system hostname to the public FQDN
+  # Without this, the kernel hostname is the EC2-assigned
+  # `ip-172-31-…-…` cloud-init picks from DHCP; it also shows up in the
+  # shell prompt and in `ccxctl motd`.
+  ansible.builtin.hostname:
+    name: "{{ ccx_hostname | default('ccx.dsylla.sesio.io') }}"
+
+- name: Ensure /etc/hosts has an entry for the new hostname
+  # `hostname(1)` alone doesn't touch /etc/hosts; without this, sudo and
+  # anything resolving the hostname locally stalls on a DNS detour.
+  ansible.builtin.lineinfile:
+    path: /etc/hosts
+    regexp: '^127\.0\.1\.1\s'
+    line: "127.0.1.1 {{ ccx_hostname | default('ccx.dsylla.sesio.io') }} {{ (ccx_hostname | default('ccx.dsylla.sesio.io')).split('.') | first }}"
+    state: present
+
+- name: Tell cloud-init to stop resetting the hostname from DHCP
+  # Debian 13's cloud-init rewrites /etc/hostname every boot from the
+  # EC2 metadata. `preserve_hostname: true` pins whatever we set above.
+  ansible.builtin.copy:
+    dest: /etc/cloud/cloud.cfg.d/99-preserve-hostname.cfg
+    mode: "0644"
+    content: |
+      # Managed by ccx ansible — keep the hostname we set (FQDN) rather
+      # than letting cloud-init replace it with `ip-172-31-…` from DHCP.
+      preserve_hostname: true
+
 - name: Update apt cache
   ansible.builtin.apt:
     update_cache: yes
