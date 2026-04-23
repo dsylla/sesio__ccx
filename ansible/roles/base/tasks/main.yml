@@ -46,6 +46,26 @@
     group: root
     mode: "0644"
 
+# Debian 12 ships without rsyslog by default — no /var/log/auth.log. fail2ban's
+# default sshd jail is file-backed and crashes on startup ("Have not found any
+# log file for sshd jail"). Override to the systemd backend (reads journald).
+- name: Configure fail2ban to use the systemd backend (Debian 12 has no auth.log)
+  ansible.builtin.copy:
+    dest: /etc/fail2ban/jail.local
+    content: |
+      [DEFAULT]
+      backend = systemd
+
+      [sshd]
+      enabled = true
+      maxretry = 5
+      findtime = 10m
+      bantime = 1h
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart fail2ban
+
 - name: Ensure fail2ban is enabled and running
   ansible.builtin.systemd:
     name: fail2ban
