@@ -68,6 +68,16 @@
   register: _v_claude_config
   changed_when: false
 
+- name: Verify ccxctl motd runs without error
+  become_user: "{{ target_user }}"
+  become: true
+  ansible.builtin.shell: |
+    "{{ target_home }}/.local/bin/ccxctl" motd | head -c 100
+  register: _v_motd
+  changed_when: false
+  # Non-fatal: motd depends on ccx-cli uv sync which happens on first login.
+  failed_when: false
+
 - name: Write provision-ok marker
   ansible.builtin.copy:
     dest: /var/log/ccx-provision-ok
@@ -80,6 +90,7 @@
       aws:           {{ _v_aws.stdout | trim }}
       rtk:           {{ _v_rtk.stdout | trim }}
       claude-config: {{ _v_claude_config.stdout | trim }}
+      motd:          {{ (_v_motd.stdout | default('') | length > 0) | ternary('ok', '(deferred — ccx-cli not yet synced)') }}
       time:          {{ ansible_date_time.iso8601 }}
     owner: root
     group: root
