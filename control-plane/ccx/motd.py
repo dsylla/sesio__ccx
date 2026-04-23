@@ -110,7 +110,7 @@ LOGO = f"""{C.CYAN}{C.BOLD}\
   ██║     ██║      ╚███╔╝
   ██║     ██║      ██╔██╗
   ╚██████╗╚██████╗██╔╝ ██╗
-   ╚═════╝ ╚═════╝╚═╝  ╚═╝{C.RESET}  {C.DIM}Claude Code X · SSDD Linux{C.RESET}"""
+   ╚═════╝ ╚═════╝╚═╝  ╚═╝{C.RESET}  {C.DIM}Claude Code X · ssdd linux{C.RESET}"""
 
 
 def status_dot(ok: bool, label: str) -> str:
