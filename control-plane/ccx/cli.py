@@ -5,6 +5,7 @@ import os
 import shutil
 import subprocess
 import sys
+import time
 import urllib.request
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -88,19 +89,92 @@ def log(msg: str) -> None:
     print(msg, flush=True)
 
 
-def notify(title: str, body: str = "", *, urgency: str | None = None) -> None:
-    """Fire a desktop notification with the ccx icon, if notify-send is available."""
+# ANSI styling — plain `log()` stays uncoloured for grep-ability.
+class _C:
+    BOLD  = "\033[1m"
+    DIM   = "\033[2m"
+    RED   = "\033[31m"
+    GREEN = "\033[32m"
+    BLUE  = "\033[34m"
+    RESET = "\033[0m"
+
+
+def _step(msg: str) -> None:
+    """Top-level step — `▶ msg`."""
+    print(f"{_C.BLUE}▶{_C.RESET} {msg}", flush=True)
+
+
+def _sub(msg: str) -> None:
+    """Indented detail line — `  · msg` (used for state polls)."""
+    print(f"  {_C.DIM}·{_C.RESET} {msg}", flush=True)
+
+
+def _ok(msg: str) -> None:
+    """Success line — `✓ msg`."""
+    print(f"{_C.GREEN}✓{_C.RESET} {msg}", flush=True)
+
+
+def notify(
+    title: str, body: str = "", *,
+    urgency: str = "normal",
+    timeout_ms: int | None = None,
+    replace_id: int | None = None,
+    print_id: bool = False,
+) -> int | None:
+    """Fire a desktop notification with the ccx icon.
+
+    `replace_id` reuses a prior notification's id so the card mutates in
+    place instead of stacking — critical for the "follows you across
+    workspaces" behaviour (the daemon redraws on the active output each
+    time we replace). `print_id=True` asks notify-send to echo the new
+    id to stdout; we parse it and return it.
+    """
     if not shutil.which("notify-send"):
-        return
-    args = ["notify-send"]
-    if urgency:
-        args += ["-u", urgency]
+        return None
+    args = ["notify-send", "-u", urgency]
+    if timeout_ms is not None:
+        args += ["-t", str(timeout_ms)]
+    if replace_id is not None:
+        args += ["-r", str(replace_id)]
+    if print_id:
+        args += ["-p"]
     if CFG.notify_icon.exists():
         args += ["-i", str(CFG.notify_icon)]
     args.append(title)
     if body:
         args.append(body)
-    subprocess.run(args, check=False)
+    r = subprocess.run(args, capture_output=True, text=True, check=False)
+    if print_id and r.returncode == 0:
+        try:
+            return int(r.stdout.strip().splitlines()[-1])
+        except (ValueError, IndexError):
+            pass
+    return None
+
+
+class ProgressNotifier:
+    """A single replaceable notification that tracks a multi-step operation.
+
+    Use `.step(body)` for each big milestone — the card stays visible with
+    no timeout (`-t 0`) until we replace it again or `.done()` lands.
+    """
+
+    def __init__(self, title: str = "ccx"):
+        self._title = title
+        self._id: int | None = None
+
+    def step(self, body: str, urgency: str = "normal") -> None:
+        new_id = notify(
+            self._title, body,
+            urgency=urgency, timeout_ms=0,
+            replace_id=self._id, print_id=True,
+        )
+        if new_id is not None:
+            self._id = new_id
+
+    def done(self, body: str, urgency: str = "normal") -> None:
+        """Final update — let the daemon expire it with the default timeout."""
+        notify(self._title, body, urgency=urgency, replace_id=self._id)
 
 
 def die(msg: str) -> "typer.Exit":
@@ -199,7 +273,7 @@ def update_dns() -> None:
         die(f"hosted zone {CFG.hosted_zone} not found")
     zone_id = zones[0]["Id"].removeprefix("/hostedzone/")
 
-    log(f"pointing {CFG.hostname} at {ip} (zone {zone_id})")
+    _step(f"pointing {CFG.hostname} → {_C.BOLD}{ip}{_C.RESET} (zone {zone_id})")
     CFG.r53.change_resource_record_sets(
         HostedZoneId=zone_id,
         ChangeBatch={"Changes": [{
@@ -240,29 +314,96 @@ def status() -> None:
     log(format_status_line(describe_instance()))
 
 
+def _wait_for_state(target: str, poll_seconds: float = 3.0,
+                    timeout_seconds: float = 600.0) -> str:
+    """Poll describe-instances until state == target, logging transitions.
+
+    Returns the final state. `describe_instance` already calls `die()` on
+    404, so we only have to worry about the happy path + timeout here.
+    """
+    last: str | None = None
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline:
+        state = describe_instance().get("State", {}).get("Name", "unknown")
+        if state != last:
+            _sub(f"state: {_C.BOLD}{state}{_C.RESET}")
+            last = state
+            refresh_widget()
+        if state == target:
+            return state
+        time.sleep(poll_seconds)
+    die(f"timed out waiting for state={target}")
+    return ""  # unreachable
+
+
+def _ssh_attach_tmux() -> None:
+    """Replace the current process with `ssh … tmux new-session -A -s ccx`."""
+    os.execvp("ssh", [
+        "ssh", "-i", str(CFG.ssh_key),
+        "-o", "IdentitiesOnly=yes",
+        "-o", "StrictHostKeyChecking=accept-new",
+        "-t", f"{CFG.ssh_user}@{CFG.hostname}",
+        "tmux", "new-session", "-A", "-s", "ccx",
+    ])
+
+
 @app.command()
-def start() -> None:
-    """Start the instance, update DNS, refresh widget."""
+def start(
+    no_ssh: Annotated[bool, typer.Option("--no-ssh", help="Skip the auto-SSH at the end.")] = False,
+) -> None:
+    """Start the instance, refresh sg/dns, then drop into the shared tmux.
+
+    The notification updates in place through big milestones (starting →
+    running → ready); detailed state transitions + SG/DNS work show on
+    stdout only. Security-group refresh before SSH is why this doesn't
+    time out after a coffee break from a new IP.
+    """
     iid = CFG.instance_id
-    log(f"starting {iid} ...")
-    CFG.ec2.start_instances(InstanceIds=[iid])
-    CFG.ec2.get_waiter("instance_running").wait(InstanceIds=[iid])
+    notifier = ProgressNotifier()
+    start_state = describe_instance().get("State", {}).get("Name", "unknown")
+    _step(f"current state: {_C.BOLD}{start_state}{_C.RESET}")
+
+    if start_state != "running":
+        _step(f"starting {_C.BOLD}{iid}{_C.RESET}")
+        notifier.step(f"starting {iid}")
+        CFG.ec2.start_instances(InstanceIds=[iid])
+        _wait_for_state("running")
+        notifier.step("running — refreshing security group & dns")
+    else:
+        notifier.step(f"already running — refreshing security group & dns")
+
+    refresh_sg()
     update_dns()
     refresh_widget()
-    notify("ccx", "instance started")
-    log(format_status_line(describe_instance()))
+
+    inst = describe_instance()
+    itype = inst.get("InstanceType", "?")
+    ip = inst.get("PublicIpAddress", "?")
+    _ok(f"ready — {_C.BOLD}{itype}{_C.RESET} {_C.BOLD}{ip}{_C.RESET}  {iid}")
+    notifier.done(f"ready — {itype} {ip}")
+
+    if no_ssh:
+        return
+
+    _step(f"ssh {CFG.ssh_user}@{CFG.hostname} (shared tmux)")
+    _ssh_attach_tmux()
 
 
 @app.command()
 def stop() -> None:
-    """Stop the instance, refresh widget."""
+    """Stop the instance, update widget."""
     iid = CFG.instance_id
-    log(f"stopping {iid} ...")
+    notifier = ProgressNotifier()
+    _step(f"stopping {_C.BOLD}{iid}{_C.RESET}")
+    notifier.step(f"stopping {iid}")
     CFG.ec2.stop_instances(InstanceIds=[iid])
-    CFG.ec2.get_waiter("instance_stopped").wait(InstanceIds=[iid])
+    _wait_for_state("stopped")
     refresh_widget()
-    notify("ccx", "instance stopped")
-    log(format_status_line(describe_instance()))
+
+    inst = describe_instance()
+    itype = inst.get("InstanceType", "?")
+    _ok(f"stopped — {_C.BOLD}{itype}{_C.RESET}  {iid}")
+    notifier.done(f"stopped — {itype}")
 
 
 @app.command()
@@ -293,7 +434,7 @@ def refresh_sg() -> None:
     inst = describe_instance()
     sg_id = inst["SecurityGroups"][0]["GroupId"]
     new_cidr = public_ip_32()
-    log(f"current public ip: {new_cidr}")
+    _step(f"current public ip: {_C.BOLD}{new_cidr}{_C.RESET}")
 
     sg = CFG.ec2.describe_security_groups(GroupIds=[sg_id])["SecurityGroups"][0]
     existing: list[str] = []
@@ -303,13 +444,13 @@ def refresh_sg() -> None:
 
     for cidr in existing:
         if cidr != new_cidr:
-            log(f"revoking stale cidr {cidr}")
+            _sub(f"revoking stale cidr {cidr}")
             CFG.ec2.revoke_security_group_ingress(
                 GroupId=sg_id, IpProtocol="tcp", FromPort=22, ToPort=22, CidrIp=cidr,
             )
 
     if new_cidr not in existing:
-        log(f"authorizing {new_cidr}")
+        _sub(f"authorizing {new_cidr}")
         CFG.ec2.authorize_security_group_ingress(
             GroupId=sg_id, IpProtocol="tcp", FromPort=22, ToPort=22, CidrIp=new_cidr,
         )
@@ -480,9 +621,11 @@ def menu() -> None:
 
 def _spawn_terminal_action(choice: str) -> None:
     """Spawn `$CCX_TERMINAL` running the given subcommand; keep open on failure."""
+    # `ccxctl start` now refresh-sg's + update-dns + exec's ssh itself,
+    # so we no longer need to chain `&& ccxctl ssh` at the caller.
     script = {
         "ssh":   "ccxctl ssh",
-        "start": "ccxctl start && ccxctl ssh",
+        "start": "ccxctl start",
     }[choice]
     # Include ~/.local/bin in PATH in case the terminal env doesn't.
     wrapped = (
