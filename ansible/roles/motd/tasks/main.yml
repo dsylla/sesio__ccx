@@ -1,0 +1,25 @@
+---
+- name: Drop Debian's default update-motd.d scripts (we replace them)
+  ansible.builtin.file:
+    path: "/etc/update-motd.d/{{ item }}"
+    state: absent
+  loop:
+    - 10-uname
+    - 50-motd-news
+    - 90-updates-available
+
+- name: Install the ccx motd hook
+  ansible.builtin.copy:
+    src: 10-ccx
+    dest: /etc/update-motd.d/10-ccx
+    mode: "0755"
+    owner: root
+    group: root
+
+- name: Ensure /etc/motd is empty (so only dynamic motd is shown)
+  ansible.builtin.copy:
+    dest: /etc/motd
+    content: ""
+    mode: "0644"
+    owner: root
+    group: root

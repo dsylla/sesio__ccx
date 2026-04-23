@@ -13,4 +13,5 @@
     - docker
     - claude_code
     - rtk
+    - motd
     - verify
