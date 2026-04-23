@@ -47,15 +47,17 @@
     depth: 1
     version: master
 
-- name: Install shell-aws-autoprofile (optional)
+- name: Install shell-aws-autoprofile
+  # Required by dotfiles/.zshrc plugins=(… shell-aws-autoprofile). Upstream
+  # repo is dbhagen/…; was previously pointed at a nonexistent dsylla/ fork
+  # on a nonexistent `main` branch, so this silently no-op'd.
   become_user: "{{ target_user }}"
   become: true
   ansible.builtin.git:
-    repo: https://github.com/dsylla/shell-aws-autoprofile.git
+    repo: https://github.com/dbhagen/shell-aws-autoprofile.git
     dest: "{{ target_home }}/.oh-my-zsh/custom/plugins/shell-aws-autoprofile"
     depth: 1
-    version: main
-  ignore_errors: true
+    version: master
 
 # .zshrc uses both oh-my-zsh AND zplug (see dotfiles/.zshrc:538-556).
 # The installer.zsh URL 404s; clone directly and pin to the latest tag.
