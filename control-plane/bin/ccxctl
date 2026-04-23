@@ -3,4 +3,19 @@
 # Keeps `~/.local/bin/ccxctl` symlinked to this file; `uv run` manages the venv.
 set -euo pipefail
 DIR="$(dirname "$(readlink -f "$0")")"
-exec /usr/bin/uv run --quiet --project "$DIR/.." --no-dev ccxctl "$@"
+
+# Pick the first real uv binary we find. Explicit paths first so we skip the
+# asdf shim (~100 ms slower). Falls back to PATH lookup for unusual installs.
+# Override: `UV=/path/to/uv ccxctl …`.
+if [ -z "${UV:-}" ]; then
+  for candidate in /usr/bin/uv /usr/local/bin/uv "$HOME/.local/bin/uv"; do
+    if [ -x "$candidate" ]; then
+      UV="$candidate"
+      break
+    fi
+  done
+  UV="${UV:-$(command -v uv || true)}"
+fi
+[ -n "$UV" ] || { echo "ccxctl: uv not found on PATH or at /usr/{,local/}bin/uv" >&2; exit 127; }
+
+exec "$UV" run --quiet --project "$DIR/.." --no-dev ccxctl "$@"
