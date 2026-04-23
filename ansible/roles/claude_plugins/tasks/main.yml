@@ -25,15 +25,19 @@
   changed_when: true
 
 # --- stdio MCP servers -----------------------------------------------------
-# `claude mcp add-json NAME '<json>'` fails if the server already exists, so
-# we first list what's registered and only add what's missing.
-- name: List registered MCP servers
+# `claude mcp get NAME` returns rc=0 iff the server is already registered —
+# a per-name check is more robust than substring-matching against the full
+# `mcp list` output (names like `git` can collide with unrelated text).
+- name: Probe each stdio MCP for existence
   become_user: "{{ target_user }}"
   become: true
   environment:
     PATH: "{{ target_home }}/.asdf/shims:/usr/local/bin:/usr/bin:/bin"
-  ansible.builtin.command: claude mcp list
-  register: _mcp_list
+  ansible.builtin.command: "claude mcp get {{ item.name }}"
+  loop: "{{ mcp_stdio_servers }}"
+  loop_control:
+    label: "{{ item.name }}"
+  register: _mcp_probe
   changed_when: false
   failed_when: false
 
@@ -49,12 +53,25 @@
       - claude
       - mcp
       - add-json
-      - "{{ item.name }}"
-      - "{{ item.config | to_json }}"
-  loop: "{{ mcp_stdio_servers }}"
+      - "{{ item.item.name }}"
+      - "{{ item.item.config | to_json }}"
+  loop: "{{ _mcp_probe.results }}"
   loop_control:
-    label: "{{ item.name }}"
-  when: item.name not in (_mcp_list.stdout | default(''))
+    label: "{{ item.item.name }}"
+  when: item.rc != 0
+
+# n8n — same flow, but gated on an ansible var so we don't bake the API key
+# into the playbook. Pass `-e n8n_api_key=<token>` when you want it on.
+- name: Probe for n8n MCP
+  become_user: "{{ target_user }}"
+  become: true
+  environment:
+    PATH: "{{ target_home }}/.asdf/shims:/usr/local/bin:/usr/bin:/bin"
+  ansible.builtin.command: claude mcp get n8n
+  register: _n8n_probe
+  changed_when: false
+  failed_when: false
+  when: n8n_api_key | length > 0
 
 - name: Install the n8n MCP server (only when n8n_api_key is provided)
   become_user: "{{ target_user }}"
@@ -70,9 +87,22 @@
       - "{{ {'command': 'npx', 'args': ['-y', '@leonardsellem/n8n-mcp-server'], 'env': {'N8N_API_URL': 'https://n8n.sesio.io/api/v1', 'N8N_API_KEY': n8n_api_key}} | to_json }}"
   when:
     - n8n_api_key | length > 0
-    - "'n8n' not in (_mcp_list.stdout | default(''))"
+    - _n8n_probe.rc | default(0) != 0
 
 # --- http MCP servers ------------------------------------------------------
+- name: Probe each http MCP for existence
+  become_user: "{{ target_user }}"
+  become: true
+  environment:
+    PATH: "{{ target_home }}/.asdf/shims:/usr/local/bin:/usr/bin:/bin"
+  ansible.builtin.command: "claude mcp get {{ item.name }}"
+  loop: "{{ mcp_http_servers }}"
+  loop_control:
+    label: "{{ item.name }}"
+  register: _mcp_http_probe
+  changed_when: false
+  failed_when: false
+
 - name: Install missing http MCP servers
   become_user: "{{ target_user }}"
   become: true
@@ -85,9 +115,9 @@
       - add
       - --transport
       - http
-      - "{{ item.name }}"
-      - "{{ item.url }}"
-  loop: "{{ mcp_http_servers }}"
+      - "{{ item.item.name }}"
+      - "{{ item.item.url }}"
+  loop: "{{ _mcp_http_probe.results }}"
   loop_control:
-    label: "{{ item.name }}"
-  when: item.name not in (_mcp_list.stdout | default(''))
+    label: "{{ item.item.name }}"
+  when: item.rc != 0
