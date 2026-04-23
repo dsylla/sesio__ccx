@@ -1,5 +1,8 @@
 ---
-- name: Drop Debian's default update-motd.d scripts (we replace them)
+# Per-user motd is printed by `ccxctl motd` invoked from ~/.zlogin (see the
+# dotfiles role). We disable the system-wide motd paths so there's exactly
+# one source of truth at login.
+- name: Drop Debian's default update-motd.d scripts
   ansible.builtin.file:
     path: "/etc/update-motd.d/{{ item }}"
     state: absent
@@ -7,18 +10,22 @@
     - 10-uname
     - 50-motd-news
     - 90-updates-available
+    - 10-ccx          # legacy: old root-context hook we used to install
 
-- name: Install the ccx motd hook
+- name: Ensure /etc/motd is empty
   ansible.builtin.copy:
-    src: 10-ccx
-    dest: /etc/update-motd.d/10-ccx
-    mode: "0755"
+    dest: /etc/motd
+    content: ""
+    mode: "0644"
     owner: root
     group: root
 
-- name: Ensure /etc/motd is empty (so only dynamic motd is shown)
+- name: Ensure /run/motd.dynamic is empty
+  # PAM's `pam_motd.so motd=/run/motd.dynamic` reads this with `noupdate`, so
+  # without resetting it we'd keep printing whatever cache existed before the
+  # update-motd.d cleanup above.
   ansible.builtin.copy:
-    dest: /etc/motd
+    dest: /run/motd.dynamic
     content: ""
     mode: "0644"
     owner: root

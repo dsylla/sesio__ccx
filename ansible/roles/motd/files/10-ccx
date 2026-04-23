@@ -1,4 +1,0 @@
-#!/bin/sh
-# Called by PAM at login. Runs as the logging-in user.
-# The `ccxctl motd` subcommand is pure-stdlib and finishes in < 200 ms.
-exec "$HOME/.local/bin/ccxctl" motd 2>/dev/null || true
