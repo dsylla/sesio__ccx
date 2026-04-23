@@ -91,7 +91,7 @@
       aws:           {{ _v_aws.stdout | trim }}
       rtk:           {{ _v_rtk.stdout | trim }}
       claude-config: {{ _v_claude_config.stdout | trim }}
-      motd:          {{ (_v_motd.rc | default(-1)) == 0 | ternary('ok', '(failed rc=' ~ (_v_motd.rc | default(-1) | string) ~ ')') }}
+      motd:          {{ ((_v_motd.rc | default(-1)) == 0) | ternary('ok', '(failed rc=' ~ (_v_motd.rc | default(-1) | string) ~ ')') }}
       time:          {{ ansible_date_time.iso8601 }}
     owner: root
     group: root
