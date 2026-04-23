@@ -165,6 +165,6 @@
 - name: Warm the ccx-cli uv venv so `ccxctl motd` is fast on first login
   become_user: "{{ target_user }}"
   become: true
-  ansible.builtin.command: /usr/bin/uv sync --no-dev --project "{{ repo_clone_path }}/control-plane"
+  ansible.builtin.command: /usr/local/bin/uv sync --no-dev --project "{{ repo_clone_path }}/control-plane"
   args:
     creates: "{{ repo_clone_path }}/control-plane/.venv/bin/python"

@@ -51,3 +51,12 @@
     name: fail2ban
     enabled: yes
     state: started
+
+# Install uv system-wide so the ccx-cli venv + ansible shims can find it
+# without relying on any per-user install. The official installer is a
+# one-shot curl|sh; UV_INSTALL_DIR pins the target.
+- name: Install uv system-wide at /usr/local/bin/uv
+  ansible.builtin.shell: |
+    curl -LsSf https://astral.sh/uv/install.sh | UV_INSTALL_DIR=/usr/local/bin sh
+  args:
+    creates: /usr/local/bin/uv
