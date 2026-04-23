@@ -24,10 +24,39 @@
   when: not item.stat.exists
   changed_when: true
 
-# --- stdio MCP servers -----------------------------------------------------
-# `claude mcp get NAME` returns rc=0 iff the server is already registered —
-# a per-name check is more robust than substring-matching against the full
-# `mcp list` output (names like `git` can collide with unrelated text).
+# --- cleanup: remove any project-scope copies we (or a prior run of this
+# role) accidentally installed. `-s user` below is the correct scope for
+# host-wide availability; anything sitting in the project scope for
+# ~/sesio__ccx would otherwise shadow the user-scope entry.
+- name: Strip project-scope MCP leftovers from ~/.claude.json
+  become_user: "{{ target_user }}"
+  become: true
+  ansible.builtin.command:
+    argv:
+      - python3
+      - -c
+      - |
+        import json, pathlib, sys
+        p = pathlib.Path.home() / ".claude.json"
+        if not p.exists():
+            sys.exit(0)
+        d = json.loads(p.read_text())
+        changed = False
+        for proj_path, proj in (d.get("projects") or {}).items():
+            mcps = proj.get("mcpServers") or {}
+            # Keep only servers we don't manage (none currently), drop the rest.
+            if mcps:
+                proj["mcpServers"] = {}
+                changed = True
+        if changed:
+            p.write_text(json.dumps(d, indent=2))
+            print("stripped project-scope mcp entries")
+  register: _strip
+  changed_when: "'stripped' in _strip.stdout"
+
+# --- stdio MCP servers at USER scope ---------------------------------------
+# `claude mcp get NAME` searches all scopes; rc=1 with "No MCP server found"
+# when truly missing. After the strip above, rc=1 means we need to install.
 - name: Probe each stdio MCP for existence
   become_user: "{{ target_user }}"
   become: true
@@ -41,18 +70,18 @@
   changed_when: false
   failed_when: false
 
-- name: Install missing stdio MCP servers
+- name: Install missing stdio MCP servers (user scope)
   become_user: "{{ target_user }}"
   become: true
   environment:
     PATH: "{{ target_home }}/.asdf/shims:/usr/local/bin:/usr/bin:/bin"
   ansible.builtin.command:
-    # Passing the JSON via argv keeps quoting correct; ansible's command
-    # module splits argv without a shell so embedded quotes survive.
     argv:
       - claude
       - mcp
       - add-json
+      - -s
+      - user
       - "{{ item.item.name }}"
       - "{{ item.item.config | to_json }}"
   loop: "{{ _mcp_probe.results }}"
@@ -60,8 +89,7 @@
     label: "{{ item.item.name }}"
   when: item.rc != 0
 
-# n8n — same flow, but gated on an ansible var so we don't bake the API key
-# into the playbook. Pass `-e n8n_api_key=<token>` when you want it on.
+# n8n — same flow, gated on n8n_api_key ansible var.
 - name: Probe for n8n MCP
   become_user: "{{ target_user }}"
   become: true
@@ -83,13 +111,15 @@
       - claude
       - mcp
       - add-json
+      - -s
+      - user
       - n8n
       - "{{ {'command': 'npx', 'args': ['-y', '@leonardsellem/n8n-mcp-server'], 'env': {'N8N_API_URL': 'https://n8n.sesio.io/api/v1', 'N8N_API_KEY': n8n_api_key}} | to_json }}"
   when:
     - n8n_api_key | length > 0
     - _n8n_probe.rc | default(0) != 0
 
-# --- http MCP servers ------------------------------------------------------
+# --- http MCP servers at USER scope ---------------------------------------
 - name: Probe each http MCP for existence
   become_user: "{{ target_user }}"
   become: true
@@ -103,7 +133,7 @@
   changed_when: false
   failed_when: false
 
-- name: Install missing http MCP servers
+- name: Install missing http MCP servers (user scope)
   become_user: "{{ target_user }}"
   become: true
   environment:
@@ -113,6 +143,8 @@
       - claude
       - mcp
       - add
+      - -s
+      - user
       - --transport
       - http
       - "{{ item.item.name }}"
