@@ -160,14 +160,22 @@ _NOTIFY_ID_FILE = Path(
 ) / "ccx-notify-id"
 
 
+# 24 hours, passed as an explicit timeout. `-t 0` per the D-Bus spec means
+# "never expire", but xfce4-notifyd (and some other daemons) interpret it
+# as "use the server default" — which on XFCE is 5 s. A large positive
+# timeout is respected unconditionally across daemons and effectively
+# means "stays put through any single ccxctl operation".
+_NOTIFY_PERSIST_MS = 24 * 60 * 60 * 1000
+
+
 class ProgressNotifier:
     """A single replaceable notification that accumulates step lines.
 
     Each `.step(line)` appends to the body and redraws in place via
-    `notify-send --replace-id` with `-t 0` so the card persists on
-    whichever workspace is currently focused. `.done(line)` also uses
-    `-t 0` — the card stays up until the user dismisses it or the next
-    ccxctl invocation replaces it. The id is persisted to
+    `notify-send --replace-id` with a 24 h timeout so the card persists
+    on whichever workspace is currently focused. `.done(line)` uses the
+    same long timeout — the card stays up until the user dismisses it
+    or the next ccxctl invocation replaces it. The id is persisted to
     `$XDG_RUNTIME_DIR/ccx-notify-id` so subsequent ccxctl invocations
     target the same card instead of stacking next to it.
     """
@@ -177,7 +185,7 @@ class ProgressNotifier:
         self._lines: list[str] = []
         self._id: int | None = _load_notify_id()
 
-    def _redraw(self, *, timeout_ms: int | None, urgency: str, capture_id: bool) -> None:
+    def _redraw(self, *, timeout_ms: int, urgency: str, capture_id: bool) -> None:
         body = "\n".join(self._lines)
         new_id = notify(
             self._title, body,
@@ -189,16 +197,16 @@ class ProgressNotifier:
             _save_notify_id(new_id)
 
     def step(self, line: str, urgency: str = "normal") -> None:
-        """Append a line and redraw; card stays visible (`-t 0`)."""
+        """Append a line and redraw; card persists across workspace switches."""
         self._lines.append(line)
-        self._redraw(timeout_ms=0, urgency=urgency, capture_id=True)
+        self._redraw(timeout_ms=_NOTIFY_PERSIST_MS, urgency=urgency, capture_id=True)
 
     def done(self, line: str, urgency: str = "normal") -> None:
-        """Append the closing line; card stays up until dismissed or replaced."""
+        """Append the closing line; card persists until dismissed or replaced."""
         self._lines.append(line)
         # Capture id here too: the card survives past this invocation and the
         # next ccxctl run needs to know which id to replace.
-        self._redraw(timeout_ms=0, urgency=urgency, capture_id=True)
+        self._redraw(timeout_ms=_NOTIFY_PERSIST_MS, urgency=urgency, capture_id=True)
 
 
 def _load_notify_id() -> int | None:
