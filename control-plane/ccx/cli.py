@@ -495,14 +495,11 @@ def refresh_sg() -> None:
             GroupId=sg_id, IpProtocol="tcp", FromPort=22, ToPort=22, CidrIp=new_cidr,
         )
 
-    notify("ccx", f"SG refreshed to {new_cidr}")
-
 
 @app.command("refresh-dns")
 def refresh_dns() -> None:
     """Force-update the Route 53 A record to the instance's current public IP."""
     update_dns()
-    notify("ccx", f"DNS refreshed for {CFG.hostname}")
 
 
 @app.command()
