@@ -152,29 +152,67 @@ def notify(
     return None
 
 
-class ProgressNotifier:
-    """A single replaceable notification that tracks a multi-step operation.
+# Shared across invocations so `ccxctl stop` → `ccxctl start` reuses a
+# single card instead of stacking. $XDG_RUNTIME_DIR is cleared at logout
+# which is the right lifetime for a transient notification handle.
+_NOTIFY_ID_FILE = Path(
+    os.environ.get("XDG_RUNTIME_DIR") or "/tmp"
+) / "ccx-notify-id"
 
-    Use `.step(body)` for each big milestone — the card stays visible with
-    no timeout (`-t 0`) until we replace it again or `.done()` lands.
+
+class ProgressNotifier:
+    """A single replaceable notification that accumulates step lines.
+
+    Each `.step(line)` appends to the body and redraws in place via
+    `notify-send --replace-id` with `-t 0` so the card persists on
+    whichever workspace is currently focused. `.done(line)` also uses
+    `-t 0` — the card stays up until the user dismisses it or the next
+    ccxctl invocation replaces it. The id is persisted to
+    `$XDG_RUNTIME_DIR/ccx-notify-id` so subsequent ccxctl invocations
+    target the same card instead of stacking next to it.
     """
 
     def __init__(self, title: str = "ccx"):
         self._title = title
-        self._id: int | None = None
+        self._lines: list[str] = []
+        self._id: int | None = _load_notify_id()
 
-    def step(self, body: str, urgency: str = "normal") -> None:
+    def _redraw(self, *, timeout_ms: int | None, urgency: str, capture_id: bool) -> None:
+        body = "\n".join(self._lines)
         new_id = notify(
             self._title, body,
-            urgency=urgency, timeout_ms=0,
-            replace_id=self._id, print_id=True,
+            urgency=urgency, timeout_ms=timeout_ms,
+            replace_id=self._id, print_id=capture_id,
         )
-        if new_id is not None:
+        if capture_id and new_id is not None:
             self._id = new_id
+            _save_notify_id(new_id)
 
-    def done(self, body: str, urgency: str = "normal") -> None:
-        """Final update — let the daemon expire it with the default timeout."""
-        notify(self._title, body, urgency=urgency, replace_id=self._id)
+    def step(self, line: str, urgency: str = "normal") -> None:
+        """Append a line and redraw; card stays visible (`-t 0`)."""
+        self._lines.append(line)
+        self._redraw(timeout_ms=0, urgency=urgency, capture_id=True)
+
+    def done(self, line: str, urgency: str = "normal") -> None:
+        """Append the closing line; card stays up until dismissed or replaced."""
+        self._lines.append(line)
+        # Capture id here too: the card survives past this invocation and the
+        # next ccxctl run needs to know which id to replace.
+        self._redraw(timeout_ms=0, urgency=urgency, capture_id=True)
+
+
+def _load_notify_id() -> int | None:
+    try:
+        return int(_NOTIFY_ID_FILE.read_text().strip())
+    except (OSError, ValueError):
+        return None
+
+
+def _save_notify_id(nid: int) -> None:
+    try:
+        _NOTIFY_ID_FILE.write_text(str(nid))
+    except OSError:
+        pass
 
 
 def die(msg: str) -> "typer.Exit":
@@ -365,22 +403,24 @@ def start(
 
     if start_state != "running":
         _step(f"starting {_C.BOLD}{iid}{_C.RESET}")
-        notifier.step(f"starting {iid}")
+        notifier.step(f"▶ starting {iid}")
         CFG.ec2.start_instances(InstanceIds=[iid])
         _wait_for_state("running")
-        notifier.step("running — refreshing security group & dns")
+        notifier.step("✓ running")
     else:
-        notifier.step(f"already running — refreshing security group & dns")
+        notifier.step("✓ already running")
 
     refresh_sg()
+    notifier.step("✓ security group refreshed")
     update_dns()
+    inst = describe_instance()
+    ip = inst.get("PublicIpAddress", "?")
+    notifier.step(f"✓ dns → {ip}")
     refresh_widget()
 
-    inst = describe_instance()
     itype = inst.get("InstanceType", "?")
-    ip = inst.get("PublicIpAddress", "?")
     _ok(f"ready — {_C.BOLD}{itype}{_C.RESET} {_C.BOLD}{ip}{_C.RESET}  {iid}")
-    notifier.done(f"ready — {itype} {ip}")
+    notifier.done(f"✓ ready — {itype} {ip}")
 
     if no_ssh:
         return
@@ -395,7 +435,7 @@ def stop() -> None:
     iid = CFG.instance_id
     notifier = ProgressNotifier()
     _step(f"stopping {_C.BOLD}{iid}{_C.RESET}")
-    notifier.step(f"stopping {iid}")
+    notifier.step(f"▶ stopping {iid}")
     CFG.ec2.stop_instances(InstanceIds=[iid])
     _wait_for_state("stopped")
     refresh_widget()
@@ -403,7 +443,7 @@ def stop() -> None:
     inst = describe_instance()
     itype = inst.get("InstanceType", "?")
     _ok(f"stopped — {_C.BOLD}{itype}{_C.RESET}  {iid}")
-    notifier.done(f"stopped — {itype}")
+    notifier.done(f"✓ stopped — {itype}")
 
 
 @app.command()
