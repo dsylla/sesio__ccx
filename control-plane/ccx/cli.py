@@ -15,9 +15,12 @@ from pathlib import Path
 from typing import Annotated
 
 import typer
+from rich.console import Console
 
 # boto3 is imported lazily in Config.session below. The ssh / --help / menu-
 # with-$CCX_STATE paths avoid the ~100 ms boto3 import entirely.
+
+console = Console()
 
 # --- config ---------------------------------------------------------------
 
@@ -90,29 +93,20 @@ def log(msg: str) -> None:
     print(msg, flush=True)
 
 
-# ANSI styling — plain `log()` stays uncoloured for grep-ability.
-class _C:
-    BOLD  = "\033[1m"
-    DIM   = "\033[2m"
-    RED   = "\033[31m"
-    GREEN = "\033[32m"
-    BLUE  = "\033[34m"
-    RESET = "\033[0m"
-
-
+# Styled line helpers — rich handles TTY detection, colour, and markup.
 def _step(msg: str) -> None:
     """Top-level step — `▶ msg`."""
-    print(f"{_C.BLUE}▶{_C.RESET} {msg}", flush=True)
+    console.print(f"[blue]▶[/] {msg}")
 
 
 def _sub(msg: str) -> None:
     """Indented detail line — `  · msg` (used for state polls)."""
-    print(f"  {_C.DIM}·{_C.RESET} {msg}", flush=True)
+    console.print(f"  [dim]·[/] {msg}")
 
 
 def _ok(msg: str) -> None:
     """Success line — `✓ msg`."""
-    print(f"{_C.GREEN}✓{_C.RESET} {msg}", flush=True)
+    console.print(f"[green]✓[/] {msg}")
 
 
 def notify(
@@ -320,7 +314,7 @@ def update_dns() -> None:
         die(f"hosted zone {CFG.hosted_zone} not found")
     zone_id = zones[0]["Id"].removeprefix("/hostedzone/")
 
-    _step(f"pointing {CFG.hostname} → {_C.BOLD}{ip}{_C.RESET} (zone {zone_id})")
+    _step(f"pointing {CFG.hostname} → [bold]{ip}[/] (zone {zone_id})")
     CFG.r53.change_resource_record_sets(
         HostedZoneId=zone_id,
         ChangeBatch={"Changes": [{
@@ -365,39 +359,56 @@ def _wait_for_state(target: str, poll_seconds: float = 3.0,
                     timeout_seconds: float = 600.0) -> str:
     """Poll describe-instances until state == target, logging transitions.
 
-    Returns the final state. `describe_instance` already calls `die()` on
-    404, so we only have to worry about the happy path + timeout here.
+    Rich `Status` handles the animated spinner; each state change prints
+    a `· state: …` line via `console.print()` (which cooperates with the
+    live spinner without flicker). `describe_instance` calls `die()` on
+    404, so only the happy path + timeout matter here.
     """
     last: str | None = None
-    deadline = time.monotonic() + timeout_seconds
-    while time.monotonic() < deadline:
-        state = describe_instance().get("State", {}).get("Name", "unknown")
-        if state != last:
-            _sub(f"state: {_C.BOLD}{state}{_C.RESET}")
-            last = state
-            refresh_widget()
-        if state == target:
-            return state
-        time.sleep(poll_seconds)
+    started = time.monotonic()
+    deadline = started + timeout_seconds
+    state = "unknown"
+    with console.status(f"[blue]waiting for state=[/][bold]{target}[/]") as status:
+        while time.monotonic() < deadline:
+            state = describe_instance().get("State", {}).get("Name", "unknown")
+            if state != last:
+                console.print(f"  [dim]·[/] state: [bold]{state}[/]")
+                last = state
+                refresh_widget()
+            if state == target:
+                return state
+            elapsed = int(time.monotonic() - started)
+            status.update(
+                f"[blue]waiting for state=[/][bold]{target}[/] "
+                f"[dim](currently {state}, {elapsed}s)[/]"
+            )
+            time.sleep(poll_seconds)
     die(f"timed out waiting for state={target}")
     return ""  # unreachable
 
 
 def _wait_for_ssh(host: str, port: int = 22, poll_seconds: float = 2.0,
                   timeout_seconds: float = 180.0) -> None:
-    """TCP-probe host:port until reachable, then return.
+    """TCP-probe host:port until reachable, with a rich spinner while waiting.
 
-    EC2's `state=running` transition only means the hypervisor has powered
-    the guest on — sshd (and cloud-init) take another 15-60 s. Executing
-    ssh before port 22 is up just hangs in the TCP-connect timeout. We
-    probe here so the exec is only issued once the socket answers.
+    EC2's `state=running` only means the hypervisor powered on — sshd
+    (and cloud-init) need another 15-60 s. Executing ssh before port 22
+    answers just hangs in the TCP-connect timeout. We probe on a 2 s
+    loop so the exec happens as soon as the socket is up.
     """
-    deadline = time.monotonic() + timeout_seconds
-    while time.monotonic() < deadline:
-        try:
-            with socket.create_connection((host, port), timeout=3):
-                return
-        except (OSError, socket.timeout):
+    started = time.monotonic()
+    deadline = started + timeout_seconds
+    with console.status(f"[blue]waiting for[/] [bold]{host}:{port}[/]") as status:
+        while time.monotonic() < deadline:
+            try:
+                with socket.create_connection((host, port), timeout=3):
+                    return
+            except (OSError, socket.timeout):
+                pass
+            elapsed = int(time.monotonic() - started)
+            status.update(
+                f"[blue]waiting for[/] [bold]{host}:{port}[/] [dim]({elapsed}s)[/]"
+            )
             time.sleep(poll_seconds)
     die(f"timed out waiting for {host}:{port}")
 
@@ -431,10 +442,10 @@ def start(
     iid = CFG.instance_id
     notifier = ProgressNotifier()
     start_state = describe_instance().get("State", {}).get("Name", "unknown")
-    _step(f"current state: {_C.BOLD}{start_state}{_C.RESET}")
+    _step(f"current state: [bold]{start_state}[/]")
 
     if start_state != "running":
-        _step(f"starting {_C.BOLD}{iid}{_C.RESET}")
+        _step(f"starting [bold]{iid}[/]")
         notifier.step(f"▶ starting {iid}")
         CFG.ec2.start_instances(InstanceIds=[iid])
         _wait_for_state("running")
@@ -451,7 +462,7 @@ def start(
     refresh_widget()
 
     itype = inst.get("InstanceType", "?")
-    _ok(f"ready — {_C.BOLD}{itype}{_C.RESET} {_C.BOLD}{ip}{_C.RESET}  {iid}")
+    _ok(f"ready — [bold]{itype}[/] [bold]{ip}[/]  {iid}")
 
     if no_ssh:
         notifier.done(f"✓ ready — {itype} {ip}")
@@ -471,7 +482,7 @@ def stop() -> None:
     """Stop the instance, update widget."""
     iid = CFG.instance_id
     notifier = ProgressNotifier()
-    _step(f"stopping {_C.BOLD}{iid}{_C.RESET}")
+    _step(f"stopping [bold]{iid}[/]")
     notifier.step(f"▶ stopping {iid}")
     CFG.ec2.stop_instances(InstanceIds=[iid])
     _wait_for_state("stopped")
@@ -479,7 +490,7 @@ def stop() -> None:
 
     inst = describe_instance()
     itype = inst.get("InstanceType", "?")
-    _ok(f"stopped — {_C.BOLD}{itype}{_C.RESET}  {iid}")
+    _ok(f"stopped — [bold]{itype}[/]  {iid}")
     notifier.done(f"✓ stopped — {itype}")
 
 
@@ -511,7 +522,7 @@ def refresh_sg() -> None:
     inst = describe_instance()
     sg_id = inst["SecurityGroups"][0]["GroupId"]
     new_cidr = public_ip_32()
-    _step(f"current public ip: {_C.BOLD}{new_cidr}{_C.RESET}")
+    _step(f"current public ip: [bold]{new_cidr}[/]")
 
     sg = CFG.ec2.describe_security_groups(GroupIds=[sg_id])["SecurityGroups"][0]
     existing: list[str] = []
