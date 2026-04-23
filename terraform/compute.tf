@@ -30,7 +30,7 @@ locals {
 }
 
 resource "aws_instance" "ccx" {
-  ami                    = data.aws_ami.debian12_arm64.id
+  ami                    = data.aws_ami.debian13_arm64.id
   instance_type          = var.instance_type
   subnet_id              = data.aws_subnet.picked.id
   vpc_security_group_ids = [aws_security_group.instance.id]

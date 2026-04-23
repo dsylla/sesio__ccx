@@ -1,10 +1,12 @@
-# Latest official Debian 12 arm64 AMI
-data "aws_ami" "debian12_arm64" {
+# Latest official Debian 13 (trixie) arm64 AMI.
+# Moved from Debian 12 after hitting GLIBC 2.36 friction (rtk arm64-gnu needs
+# 2.39) and Debian 12's default no-rsyslog/no-auth.log fail2ban trap.
+data "aws_ami" "debian13_arm64" {
   most_recent = true
   owners      = ["136693071363"] # Debian
   filter {
     name   = "name"
-    values = ["debian-12-arm64-*"]
+    values = ["debian-13-arm64-*"]
   }
   filter {
     name   = "architecture"
