@@ -71,11 +71,12 @@
 - name: Verify ccxctl motd runs without error
   become_user: "{{ target_user }}"
   become: true
-  ansible.builtin.shell: |
-    "{{ target_home }}/.local/bin/ccxctl" motd | head -c 100
+  ansible.builtin.command: "{{ target_home }}/.local/bin/ccxctl motd"
   register: _v_motd
   changed_when: false
   # Non-fatal: motd depends on ccx-cli uv sync which happens on first login.
+  # Exit code only — piping `head -c N` would truncate the boxed UTF-8 output
+  # mid-byte and break ansible's strict UTF-8 deserialization.
   failed_when: false
 
 - name: Write provision-ok marker
@@ -90,7 +91,7 @@
       aws:           {{ _v_aws.stdout | trim }}
       rtk:           {{ _v_rtk.stdout | trim }}
       claude-config: {{ _v_claude_config.stdout | trim }}
-      motd:          {{ (_v_motd.stdout | default('') | length > 0) | ternary('ok', '(deferred — ccx-cli not yet synced)') }}
+      motd:          {{ (_v_motd.rc | default(-1)) == 0 | ternary('ok', '(failed rc=' ~ (_v_motd.rc | default(-1) | string) ~ ')') }}
       time:          {{ ansible_date_time.iso8601 }}
     owner: root
     group: root
