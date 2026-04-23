@@ -96,45 +96,21 @@ def full_row(content: str) -> str:
     return f"{C.DIM}║{C.RESET}{content}{' ' * max(0, pad)}{C.DIM}║{C.RESET}"
 
 
-def centered_full_row(content: str) -> str:
-    """Same as full_row but pads content on both sides."""
-    pad = FULL_W - visible_len(content)
-    left = max(0, pad // 2)
-    right = max(0, pad - left)
-    return (
-        f"{C.DIM}║{C.RESET}{' ' * left}{content}{' ' * right}{C.DIM}║{C.RESET}"
-    )
-
-
-def box_full_top() -> str:
-    """Full-width top cap (no internal split yet): `╔═…═╗`."""
-    return f"{C.DIM}╔{'═' * FULL_W}╗{C.RESET}"
-
-
-def box_full_to_split(lt: str, rt: str) -> str:
-    """Transition from full-width above to a left/right split below.
-
-    Produces `╠══ lt ══╦══ rt ══╣` — the `╦` opens the vertical split
-    that the rows below will ride on.
-    """
+def box_top(lt: str, rt: str) -> str:
     l = f"══ {lt} "
     r = f"══ {rt} "
-    return (
-        f"{C.DIM}╠{l}{'═' * (LEFT_W - len(l))}"
-        f"╦{r}{'═' * (RIGHT_W - len(r))}╣{C.RESET}"
-    )
+    return f"{C.DIM}╔{l}{'═' * (LEFT_W - len(l))}╦{r}{'═' * (RIGHT_W - len(r))}╗{C.RESET}"
 
 
-# CCX block letters (5 lines, drawn from Unicode box-drawing glyphs).
-_CCX_ASCII = [
-    " ██████╗ ██████╗██╗  ██╗",
-    "██╔════╝██╔════╝╚██╗██╔╝",
-    "██║     ██║      ╚███╔╝ ",
-    "██║     ██║      ██╔██╗ ",
-    "╚██████╗╚██████╗██╔╝ ██╗",
-    " ╚═════╝ ╚═════╝╚═╝  ╚═╝",
-]
-_CCX_SUBTITLE = "Claude Code X · SSDD Linux"
+# Free-text banner printed above the box (matches the pattern in
+# sesio__motd where the logo sits outside the framed sections).
+LOGO = f"""{C.CYAN}{C.BOLD}\
+   ██████╗ ██████╗██╗  ██╗
+  ██╔════╝██╔════╝╚██╗██╔╝
+  ██║     ██║      ╚███╔╝
+  ██║     ██║      ██╔██╗
+  ╚██████╗╚██████╗██╔╝ ██╗
+   ╚═════╝ ╚═════╝╚═╝  ╚═╝{C.RESET}  {C.DIM}Claude Code X · SSDD Linux{C.RESET}"""
 
 
 def status_dot(ok: bool, label: str) -> str:
@@ -344,13 +320,11 @@ def render_motd(
     services: Optional[dict], dotfiles: Optional[dict],
 ) -> str:
     lines: list[str] = []
-    # ---- HEADER (ASCII CCX + subtitle) ----
-    lines.append(box_full_top())
-    for art in _CCX_ASCII:
-        lines.append(centered_full_row(f"{C.CYAN}{C.BOLD}{art}{C.RESET}"))
-    lines.append(centered_full_row(f"{C.DIM}{_CCX_SUBTITLE}{C.RESET}"))
+    # ---- LOGO (free text, above the framed sections) ----
+    lines.append(LOGO)
+    lines.append("")
     # ---- SYSTEM / INSTANCE ----
-    lines.append(box_full_to_split("SYSTEM", "INSTANCE"))
+    lines.append(box_top("SYSTEM", "INSTANCE"))
     sys_l = [" unavailable", "", "", ""]
     if system:
         s = system
