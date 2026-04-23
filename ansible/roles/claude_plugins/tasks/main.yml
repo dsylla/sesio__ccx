@@ -1,15 +1,23 @@
 ---
 # --- plugins ---------------------------------------------------------------
-# `claude plugin install` is idempotent when the plugin is already installed
-# (returns 0 with a "already installed" notice), but we check via the cache
-# directory to skip the network round-trip when nothing needs doing.
-- name: Check which Claude plugins are already installed
+# Read the manifest to decide what to install. The cache dir alone isn't
+# authoritative (it can be populated by a failed/aborted install without
+# the manifest being updated — which is exactly what we just hit).
+- name: Read current installed-plugins manifest
   become_user: "{{ target_user }}"
   become: true
-  ansible.builtin.stat:
-    path: "{{ target_home }}/.claude/plugins/cache/claude-plugins-official/{{ item }}"
-  loop: "{{ claude_plugins }}"
-  register: _plugin_stat
+  ansible.builtin.slurp:
+    src: "{{ target_home }}/.claude/plugins/installed_plugins.json"
+  register: _plugins_manifest
+  failed_when: false
+
+- name: Compute the set of already-installed plugins
+  ansible.builtin.set_fact:
+    _installed_plugin_names: >-
+      {{
+        (((_plugins_manifest.content | default('') | b64decode | from_json).plugins) | default({})).keys()
+        | map('regex_replace', '@.*$', '') | list
+      }}
 
 - name: Install missing Claude plugins
   become_user: "{{ target_user }}"
@@ -17,11 +25,9 @@
   environment:
     PATH: "{{ target_home }}/.asdf/shims:/usr/local/bin:/usr/bin:/bin"
   ansible.builtin.command:
-    cmd: "claude plugin install {{ item.item }}@claude-plugins-official"
-  loop: "{{ _plugin_stat.results }}"
-  loop_control:
-    label: "{{ item.item }}"
-  when: not item.stat.exists
+    cmd: "claude plugin install {{ item }}@claude-plugins-official"
+  loop: "{{ claude_plugins }}"
+  when: item not in _installed_plugin_names
   changed_when: true
 
 # --- cleanup: remove any project-scope copies we (or a prior run of this
