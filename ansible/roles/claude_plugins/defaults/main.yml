@@ -1,0 +1,10 @@
+---
+# Claude Code plugins from the official marketplace.
+claude_plugins:
+  - pyright-lsp
+  - superpowers
+  - frontend-design
+
+# n8n API key — leave empty by default; if you want the n8n MCP on the box,
+# run `claude mcp add …` manually or pass `-e n8n_api_key=<token>` to ansible.
+n8n_api_key: ""

@@ -12,6 +12,7 @@
     - asdf
     - docker
     - claude_code
+    - claude_plugins
     - rtk
     - motd
     - verify

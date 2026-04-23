@@ -1,0 +1,93 @@
+---
+# --- plugins ---------------------------------------------------------------
+# `claude plugin install` is idempotent when the plugin is already installed
+# (returns 0 with a "already installed" notice), but we check via the cache
+# directory to skip the network round-trip when nothing needs doing.
+- name: Check which Claude plugins are already installed
+  become_user: "{{ target_user }}"
+  become: true
+  ansible.builtin.stat:
+    path: "{{ target_home }}/.claude/plugins/cache/claude-plugins-official/{{ item }}"
+  loop: "{{ claude_plugins }}"
+  register: _plugin_stat
+
+- name: Install missing Claude plugins
+  become_user: "{{ target_user }}"
+  become: true
+  environment:
+    PATH: "{{ target_home }}/.asdf/shims:/usr/local/bin:/usr/bin:/bin"
+  ansible.builtin.command:
+    cmd: "claude plugin install {{ item.item }}@claude-plugins-official"
+  loop: "{{ _plugin_stat.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+  when: not item.stat.exists
+  changed_when: true
+
+# --- stdio MCP servers -----------------------------------------------------
+# `claude mcp add-json NAME '<json>'` fails if the server already exists, so
+# we first list what's registered and only add what's missing.
+- name: List registered MCP servers
+  become_user: "{{ target_user }}"
+  become: true
+  environment:
+    PATH: "{{ target_home }}/.asdf/shims:/usr/local/bin:/usr/bin:/bin"
+  ansible.builtin.command: claude mcp list
+  register: _mcp_list
+  changed_when: false
+  failed_when: false
+
+- name: Install missing stdio MCP servers
+  become_user: "{{ target_user }}"
+  become: true
+  environment:
+    PATH: "{{ target_home }}/.asdf/shims:/usr/local/bin:/usr/bin:/bin"
+  ansible.builtin.command:
+    # Passing the JSON via argv keeps quoting correct; ansible's command
+    # module splits argv without a shell so embedded quotes survive.
+    argv:
+      - claude
+      - mcp
+      - add-json
+      - "{{ item.name }}"
+      - "{{ item.config | to_json }}"
+  loop: "{{ mcp_stdio_servers }}"
+  loop_control:
+    label: "{{ item.name }}"
+  when: item.name not in (_mcp_list.stdout | default(''))
+
+- name: Install the n8n MCP server (only when n8n_api_key is provided)
+  become_user: "{{ target_user }}"
+  become: true
+  environment:
+    PATH: "{{ target_home }}/.asdf/shims:/usr/local/bin:/usr/bin:/bin"
+  ansible.builtin.command:
+    argv:
+      - claude
+      - mcp
+      - add-json
+      - n8n
+      - "{{ {'command': 'npx', 'args': ['-y', '@leonardsellem/n8n-mcp-server'], 'env': {'N8N_API_URL': 'https://n8n.sesio.io/api/v1', 'N8N_API_KEY': n8n_api_key}} | to_json }}"
+  when:
+    - n8n_api_key | length > 0
+    - "'n8n' not in (_mcp_list.stdout | default(''))"
+
+# --- http MCP servers ------------------------------------------------------
+- name: Install missing http MCP servers
+  become_user: "{{ target_user }}"
+  become: true
+  environment:
+    PATH: "{{ target_home }}/.asdf/shims:/usr/local/bin:/usr/bin:/bin"
+  ansible.builtin.command:
+    argv:
+      - claude
+      - mcp
+      - add
+      - --transport
+      - http
+      - "{{ item.name }}"
+      - "{{ item.url }}"
+  loop: "{{ mcp_http_servers }}"
+  loop_control:
+    label: "{{ item.name }}"
+  when: item.name not in (_mcp_list.stdout | default(''))
