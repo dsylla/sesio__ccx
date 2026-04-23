@@ -22,6 +22,7 @@ class C:
     GREEN = "\033[32m"
     RED = "\033[31m"
     YELLOW = "\033[33m"
+    BLUE = "\033[34m"
     DIM = "\033[2m"
     BOLD = "\033[1m"
     RESET = "\033[0m"
@@ -54,56 +55,7 @@ def visible_len(s: str) -> int:
     return len(re.sub(r"\033\[[0-9;]*m", "", s))
 
 
-def _compute_widths() -> tuple[int, int]:
-    term_w = shutil.get_terminal_size((80, 24)).columns
-    inner = term_w - 3
-    left = max(26, inner * 30 // 64)
-    right = inner - left
-    return left, right
-
-
-LEFT_W, RIGHT_W = _compute_widths()
-FULL_W = LEFT_W + RIGHT_W + 1
-
-
-def box_mid(lt: str, rt: str) -> str:
-    l = f"══ {lt} "
-    r = f"══ {rt} "
-    return f"{C.DIM}╠{l}{'═' * (LEFT_W - len(l))}╬{r}{'═' * (RIGHT_W - len(r))}╣{C.RESET}"
-
-
-def box_full_mid(title: str) -> str:
-    t = f"══ {title} "
-    return f"{C.DIM}╠{t}{'═' * (FULL_W - len(t))}╣{C.RESET}"
-
-
-def box_bottom() -> str:
-    return f"{C.DIM}╚{'═' * LEFT_W}╩{'═' * RIGHT_W}╝{C.RESET}"
-
-
-def box_full_bottom() -> str:
-    return f"{C.DIM}╚{'═' * FULL_W}╝{C.RESET}"
-
-
-def row(left: str, right: str) -> str:
-    l_pad = LEFT_W - visible_len(left)
-    r_pad = RIGHT_W - visible_len(right)
-    return f"{C.DIM}║{C.RESET}{left}{' ' * max(0, l_pad)}{C.DIM}║{C.RESET}{right}{' ' * max(0, r_pad)}{C.DIM}║{C.RESET}"
-
-
-def full_row(content: str) -> str:
-    pad = FULL_W - visible_len(content)
-    return f"{C.DIM}║{C.RESET}{content}{' ' * max(0, pad)}{C.DIM}║{C.RESET}"
-
-
-def box_top(lt: str, rt: str) -> str:
-    l = f"══ {lt} "
-    r = f"══ {rt} "
-    return f"{C.DIM}╔{l}{'═' * (LEFT_W - len(l))}╦{r}{'═' * (RIGHT_W - len(r))}╗{C.RESET}"
-
-
-# Free-text banner printed above the box (matches the pattern in
-# sesio__motd where the logo sits outside the framed sections).
+# Free-text banner printed above the sections.
 LOGO = f"""{C.CYAN}{C.BOLD}\
    ██████╗ ██████╗██╗  ██╗
   ██╔════╝██╔════╝╚██╗██╔╝
@@ -111,6 +63,24 @@ LOGO = f"""{C.CYAN}{C.BOLD}\
   ██║     ██║      ██╔██╗
   ╚██████╗╚██████╗██╔╝ ██╗
    ╚═════╝ ╚═════╝╚═╝  ╚═╝{C.RESET}  {C.DIM}Claude Code X · ssdd linux{C.RESET}"""
+
+
+def section(color: str, title: str, body_lines: list[str]) -> list[str]:
+    """Left-rule section — coloured `▎` bar, section title, then body.
+
+    A trailing blank line separates this section from the next.
+    """
+    rule = f"{color}▎{C.RESET}"
+    out = [f"  {rule} {color}{title}{C.RESET}"]
+    for line in body_lines:
+        out.append(f"  {rule}  {line}")
+    out.append("")
+    return out
+
+
+def kv(label: str, value: str, label_w: int = 7) -> str:
+    """`label  value` — `label` dim-padded to label_w, value raw."""
+    return f"{C.DIM}{label:<{label_w}}{C.RESET}  {value}"
 
 
 def status_dot(ok: bool, label: str) -> str:
@@ -320,87 +290,97 @@ def render_motd(
     services: Optional[dict], dotfiles: Optional[dict],
 ) -> str:
     lines: list[str] = []
-    # ---- LOGO (free text, above the framed sections) ----
     lines.append(LOGO)
     lines.append("")
-    # ---- SYSTEM / INSTANCE ----
-    lines.append(box_top("SYSTEM", "INSTANCE"))
-    sys_l = [" unavailable", "", "", ""]
+
+    # SYSTEM — cyan
     if system:
         s = system
-        sys_l = [
-            f" Host:   {C.BOLD}{s['hostname']}{C.RESET}",
-            f" Uptime: {C.BOLD}{s['uptime']}{C.RESET}",
-            f" CPU: {C.BOLD}{s['cpu_pct']}%{C.RESET}  RAM: {C.BOLD}{s['ram_pct']}%{C.RESET}",
-            f" Disk: {C.BOLD}{s['disk_used']}/{s['disk_total']}{C.RESET} ({s['disk_pct']}%)",
+        sys_body = [
+            kv("host",   f"{C.BOLD}{s['hostname']}{C.RESET}"),
+            kv("uptime", f"{C.BOLD}{s['uptime']}{C.RESET}"),
+            kv("cpu",    f"{C.BOLD}{s['cpu_pct']}%{C.RESET}   {C.DIM}ram{C.RESET} {C.BOLD}{s['ram_pct']}%{C.RESET}"),
+            kv("disk",   f"{C.BOLD}{s['disk_used']}{C.RESET} / {C.BOLD}{s['disk_total']}{C.RESET} {C.DIM}({s['disk_pct']}%){C.RESET}"),
         ]
-    ins_l = [" unavailable", "", "", ""]
+    else:
+        sys_body = [f"{C.DIM}unavailable{C.RESET}"]
+    lines.extend(section(C.CYAN, "SYSTEM", sys_body))
+
+    # INSTANCE — blue
     if instance:
         i = instance
-        ins_l = [
-            f" Type: {C.BOLD}{i['instance_type']}{C.RESET}",
-            f" Reg:  {C.BOLD}{i['region']}{C.RESET} ({i['az']})",
-            f" IP:   {C.BOLD}{i['public_ip']}{C.RESET}",
-            f" ID:   {C.DIM}{i['instance_id']}{C.RESET}",
+        ins_body = [
+            kv("type",   f"{C.BOLD}{i['instance_type']}{C.RESET}"),
+            kv("region", f"{C.BOLD}{i['region']}{C.RESET}  {C.DIM}({i['az']}){C.RESET}"),
+            kv("ip",     f"{C.BOLD}{i['public_ip']}{C.RESET}"),
+            kv("id",     f"{C.DIM}{i['instance_id']}{C.RESET}"),
         ]
-    for l, r in zip(sys_l, ins_l):
-        lines.append(row(l, r))
+    else:
+        ins_body = [f"{C.DIM}unavailable{C.RESET}"]
+    lines.extend(section(C.BLUE, "INSTANCE", ins_body))
 
-    # ---- SESSIONS (full width) ----
-    lines.append(box_full_mid("SESSIONS"))
+    # SESSIONS — green
     if sessions and sessions["sessions"]:
+        ses_body = []
         for s in sessions["sessions"]:
             up = format_uptime(s["uptime_seconds"] or 0) if s.get("uptime_seconds") else "-"
             toks = s["tokens_today"]
-            content = (
-                f" {C.BOLD}{s['slug']}{C.RESET}"
-                f"  up {up}"
-                f"  in {C.BOLD}{toks['input']}{C.RESET}"
-                f"  out {C.BOLD}{toks['output']}{C.RESET}"
-                f"  {C.DIM}{s['cwd']}{C.RESET}"
+            ses_body.append(
+                f"{C.GREEN}●{C.RESET} {C.BOLD}{s['slug']:<6}{C.RESET} "
+                f"{C.DIM}{s['cwd']}{C.RESET}   "
+                f"up {C.BOLD}{up}{C.RESET}   "
+                f"in {C.BOLD}{toks['input']}{C.RESET}  "
+                f"out {C.BOLD}{toks['output']}{C.RESET}"
             )
-            lines.append(full_row(content))
     else:
-        lines.append(full_row(f" {C.DIM}(no sessions){C.RESET}"))
+        ses_body = [f"{C.DIM}(no sessions){C.RESET}"]
+    lines.extend(section(C.GREEN, "SESSIONS", ses_body))
 
-    # ---- USAGE / SERVICES ----
-    lines.append(box_mid("USAGE (today)", "SERVICES"))
-    us_l = [" unavailable", "", ""]
+    # USAGE — yellow
     if usage:
         t = usage["today"]
-        us_l = [
-            f" In:    {C.BOLD}{t['input']}{C.RESET}",
-            f" Out:   {C.BOLD}{t['output']}{C.RESET}",
-            f" Total: {C.BOLD}{t['total']}{C.RESET}",
+        use_body = [
+            f"in {C.BOLD}{t['input']}{C.RESET}   {C.DIM}·{C.RESET}   "
+            f"out {C.BOLD}{t['output']}{C.RESET}   {C.DIM}·{C.RESET}   "
+            f"total {C.BOLD}{t['total']}{C.RESET}   {C.DIM}(today){C.RESET}"
         ]
-    sv_l = [" unavailable", "", ""]
-    if services:
-        sv_l = []
-        for name, state in services["services"]:
-            sv_l.append(f" {service_dot(state)} {name:<20s} {state}")
-        while len(sv_l) < 3:
-            sv_l.append("")
-    max_n = max(len(us_l), len(sv_l))
-    us_l += [""] * (max_n - len(us_l))
-    sv_l += [""] * (max_n - len(sv_l))
-    for l, r in zip(us_l, sv_l):
-        lines.append(row(l, r))
+    else:
+        use_body = [f"{C.DIM}unavailable{C.RESET}"]
+    lines.extend(section(C.YELLOW, "USAGE", use_body))
 
-    # ---- DOTFILES (full width) ----
-    lines.append(box_full_mid("DOTFILES"))
+    # SERVICES — cyan
+    if services:
+        svc_body = [
+            "   ".join(
+                f"{service_dot(state)} {name}" for name, state in services["services"]
+            )
+        ]
+    else:
+        svc_body = [f"{C.DIM}unavailable{C.RESET}"]
+    lines.extend(section(C.CYAN, "SERVICES", svc_body))
+
+    # DOTFILES — blue
     if dotfiles:
+        dot_body = []
         for name, info in dotfiles.items():
             behind = info["behind"]
             if behind is None:
-                drift = f" {C.DIM}(no upstream){C.RESET}"
+                drift = f"  {C.DIM}(no upstream){C.RESET}"
             elif behind:
-                drift = f" ({C.YELLOW}{behind} behind{C.RESET})"
+                drift = f"  ({C.YELLOW}{behind} behind{C.RESET})"
             else:
                 drift = ""
-            lines.append(full_row(f" {C.BOLD}{name}{C.RESET}  {info['sha']}{drift}"))
+            dot_body.append(
+                f"{C.BOLD}{name:<14}{C.RESET} {C.DIM}{info['sha']}{C.RESET}{drift}"
+            )
     else:
-        lines.append(full_row(f" {C.DIM}unavailable{C.RESET}"))
-    lines.append(box_full_bottom())
+        dot_body = [f"{C.DIM}unavailable{C.RESET}"]
+    lines.extend(section(C.BLUE, "DOTFILES", dot_body))
+
+    # Trailing blank from last section leaves a nice bottom margin —
+    # trim so the output ends right after DOTFILES.
+    while lines and lines[-1] == "":
+        lines.pop()
     return "\n".join(lines)
 
 

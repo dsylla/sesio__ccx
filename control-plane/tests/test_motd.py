@@ -186,4 +186,5 @@ def test_render_motd_smoke():
     assert "t4g.xlarge" in out
     assert "docker" in out
     assert "abc1234" in out
-    assert "╔" in out and "╚" in out
+    assert "▎" in out  # left-rule vertical bar
+    assert "SYSTEM" in out and "DOTFILES" in out
