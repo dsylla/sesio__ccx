@@ -565,7 +565,15 @@ typeset -g POWERLEVEL9K_INSTANT_PROMPT=quiet
 export BROWSER=google-chrome-stable
 export GOPATH="$HOME/go"
 export PATH=$PATH:$GOPATH/bin
-export PATH="${ASDF_DATA_DIR:-$HOME/.asdf}/shims:$PATH"
+# asdf init — prefer asdf.sh (upstream install adds both bin + shims to
+# PATH, which the shim scripts need so they can call `asdf reshim` after
+# global installs). Fall back to shims-only for Arch's system package
+# (`paru -S asdf-vm`) where asdf.sh isn't shipped.
+if [[ -f "${ASDF_DATA_DIR:-$HOME/.asdf}/asdf.sh" ]]; then
+  source "${ASDF_DATA_DIR:-$HOME/.asdf}/asdf.sh"
+else
+  export PATH="${ASDF_DATA_DIR:-$HOME/.asdf}/shims:$PATH"
+fi
 export PATH="$HOME/.config/emacs/bin/:$PATH"
 # append completions to fpath
 fpath=(${ASDF_DATA_DIR:-$HOME/.asdf}/completions $fpath)
