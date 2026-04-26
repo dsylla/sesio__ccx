@@ -1,4 +1,4 @@
-"""ccxctl session — tmux-backed project-anchored claude session manager."""
+"""ccxctl session — tmux-backed project-anchored coding-agent session manager."""
 from __future__ import annotations
 
 import datetime as _dt
@@ -9,6 +9,8 @@ import subprocess
 import time
 import typer
 from pathlib import Path
+
+from ccx.agents import AgentSpec, get_agent, split_window_name
 
 
 def slug(path: str) -> str:
@@ -102,8 +104,8 @@ def tmux_has_window(slug_: str, session: str = SESSION_NAME) -> bool:
     return result.returncode == 0
 
 
-def find_claude_pid(pane_pid: int) -> int | None:
-    """Walk /proc descendants of pane_pid; return the first one whose comm is 'claude'."""
+def find_agent_pid(pane_pid: int, agent: AgentSpec) -> int | None:
+    """Walk /proc descendants of pane_pid; return the first one whose comm matches the agent."""
     to_visit = [pane_pid]
     seen: set[int] = set()
     while to_visit:
@@ -111,15 +113,13 @@ def find_claude_pid(pane_pid: int) -> int | None:
         if pid in seen:
             continue
         seen.add(pid)
-        # Check comm
         try:
             with open(f"{_PROC}/{pid}/comm") as f:
                 comm = f.read().strip()
-            if comm == "claude":
+            if comm in agent.process_names:
                 return pid
         except (FileNotFoundError, PermissionError):
             pass
-        # Enqueue children from all threads
         try:
             tasks_dir = f"{_PROC}/{pid}/task"
             for tid in os.listdir(tasks_dir):
@@ -132,6 +132,11 @@ def find_claude_pid(pane_pid: int) -> int | None:
         except (FileNotFoundError, PermissionError):
             continue
     return None
+
+
+def find_claude_pid(pane_pid: int) -> int | None:
+    """Back-compat wrapper around find_agent_pid for the claude agent."""
+    return find_agent_pid(pane_pid, get_agent("claude"))
 
 
 _NOW_FN = time.time
@@ -178,23 +183,40 @@ def _project_jsonl_files(cwd: str) -> list[Path]:
     return sorted(d.glob("*.jsonl"))
 
 
+def _usage_for_agent(agent_name: str, cwd: str) -> dict:
+    """Per-agent usage stats. Only Claude has a local jsonl source today."""
+    if agent_name != "claude":
+        return {"input": 0, "output": 0, "available": False}
+    tk = parse_jsonl_tokens_today(_project_jsonl_files(cwd))
+    return {**tk, "available": True}
+
+
 def collect_sessions() -> list[dict]:
-    """Enumerate tmux windows in session `ccx`, enrich each with claude + tokens."""
+    """Enumerate tmux windows in session `ccx`, enrich each with agent + uptime + usage."""
     out: list[dict] = []
     for row in tmux_list_windows():
         try:
-            claude_pid = find_claude_pid(row["pane_pid"])
-            uptime = _process_uptime_seconds(claude_pid) if claude_pid else None
-            tokens = parse_jsonl_tokens_today(_project_jsonl_files(row["cwd"]))
+            agent_name, bare_slug = split_window_name(row["slug"])
+            agent = get_agent(agent_name)
+            agent_pid = find_agent_pid(row["pane_pid"], agent)
+            uptime = _process_uptime_seconds(agent_pid) if agent_pid else None
+            usage = _usage_for_agent(agent.name, row["cwd"])
         except Exception:
-            claude_pid, uptime, tokens = None, None, {"input": 0, "output": 0}
+            agent_name = "claude"
+            bare_slug = row["slug"]
+            agent_pid, uptime = None, None
+            usage = {"input": 0, "output": 0, "available": False}
         out.append({
-            "slug": row["slug"],
+            "agent": agent_name,
+            "slug": bare_slug,
+            "window": row["slug"],
             "cwd": row["cwd"],
             "pane_pid": row["pane_pid"],
-            "claude_pid": claude_pid,
+            "agent_pid": agent_pid,
+            "claude_pid": agent_pid if agent_name == "claude" else None,
             "uptime_seconds": uptime,
-            "tokens_today": tokens,
+            "usage_today": usage,
+            "tokens_today": {"input": int(usage["input"]), "output": int(usage["output"])},
         })
     return out
 

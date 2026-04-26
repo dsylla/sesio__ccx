@@ -164,11 +164,15 @@ def test_collect_sessions_happy_path(tmp_path, monkeypatch):
         sessions = collect_sessions()
 
     assert sessions == [{
+        "agent": "claude",
         "slug": "ccx",
+        "window": "ccx",
         "cwd": "/home/david/Work/sesio/ccx",
         "pane_pid": 42,
+        "agent_pid": 102,
         "claude_pid": 102,
         "uptime_seconds": pytest.approx(200, abs=1),  # now(1700) - (boot(1000) + 50000/100)
+        "usage_today": {"input": 0, "output": 0, "available": True},
         "tokens_today": {"input": 0, "output": 0},
     }]
 
@@ -269,3 +273,53 @@ def test_agent_window_names_round_trip_and_legacy_claude():
     assert window_name("codex", "sesio__ccx") == "codex:sesio__ccx"
     assert split_window_name("codex:sesio__ccx") == ("codex", "sesio__ccx")
     assert split_window_name("sesio__ccx") == ("claude", "sesio__ccx")
+
+
+def test_find_agent_pid_accepts_codex_process(tmp_path, monkeypatch):
+    from ccx.agents import get_agent
+    from ccx.sessions import find_agent_pid
+
+    proc = tmp_path / "proc"
+    (proc / "100/task/100").mkdir(parents=True)
+    (proc / "100/task/100/children").write_text("101 ")
+    (proc / "100/comm").write_text("bash\n")
+    (proc / "101/task/101").mkdir(parents=True)
+    (proc / "101/task/101/children").write_text("")
+    (proc / "101/comm").write_text("codex\n")
+    monkeypatch.setattr("ccx.sessions._PROC", str(proc))
+
+    assert find_agent_pid(100, get_agent("codex")) == 101
+
+
+def test_collect_sessions_reports_agent_and_legacy_claude(tmp_path, monkeypatch):
+    from ccx.sessions import collect_sessions
+
+    proc = tmp_path / "proc"
+    for pid, comm in [(42, "bash"), (102, "claude"), (43, "bash"), (103, "codex")]:
+        (proc / f"{pid}/task/{pid}").mkdir(parents=True)
+        (proc / f"{pid}/comm").write_text(f"{comm}\n")
+    (proc / "42/task/42/children").write_text("102 ")
+    (proc / "43/task/43/children").write_text("103 ")
+    (proc / "102/task/102/children").write_text("")
+    (proc / "102/stat").write_text("102 (claude) S " + "0 " * 18 + "50000 " + "0 " * 30)
+    (proc / "103/task/103/children").write_text("")
+    (proc / "103/stat").write_text("103 (codex) S " + "0 " * 18 + "60000 " + "0 " * 30)
+
+    monkeypatch.setattr("ccx.sessions._PROC", str(proc))
+    monkeypatch.setattr("ccx.sessions._NOW_FN", lambda: 1700)
+    monkeypatch.setattr("ccx.sessions._BOOT_FN", lambda: 1000)
+    monkeypatch.setattr("ccx.sessions._CLAUDE_PROJECTS_DIR", str(tmp_path / "not-there"))
+
+    with patch("ccx.sessions.tmux_list_windows", return_value=[
+        {"slug": "legacy", "activity": 1, "cwd": "/work/legacy", "pane_pid": 42},
+        {"slug": "codex:modern", "activity": 2, "cwd": "/work/modern", "pane_pid": 43},
+    ]):
+        rows = collect_sessions()
+
+    assert rows[0]["agent"] == "claude"
+    assert rows[0]["slug"] == "legacy"
+    assert rows[0]["agent_pid"] == 102
+    assert rows[1]["agent"] == "codex"
+    assert rows[1]["slug"] == "modern"
+    assert rows[1]["agent_pid"] == 103
+    assert rows[1]["usage_today"]["available"] is False
