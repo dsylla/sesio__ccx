@@ -40,8 +40,9 @@ shred -u ~/.ssh/claude_config_deploy_key ~/.ssh/claude_config_deploy_key.pub
 ssh david@ccx.dsylla.sesio.io 'cat /var/log/ccx-provision-ok'
 ```
 
-If the marker file exists and prints versions (including rtk and the
-claude-config commit SHA), cloud-init + ansible-pull succeeded.
+If the marker file exists and prints both `claude` and `codex` versions
+alongside rtk and the claude-config commit SHA, cloud-init + ansible-pull
+succeeded.
 
 ## State
 

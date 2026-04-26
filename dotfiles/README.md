@@ -28,3 +28,10 @@ claude-config repo means the server picks up new skills / CLAUDE.md edits by
 `.claude/statsig/`, `~/.aws/credentials`, anything with tokens or passwords.
 Claude Code and AWS both authenticate on first use — no static secrets at
 rest in this repo.
+
+## Codex
+
+Codex config is provisioned separately under `~/.codex`.
+The baseline `config.toml` is copied on first provisioning only, because
+`codex mcp add` mutates the file when installing MCP servers.
+Credentials, history, session databases, and auth files are excluded.

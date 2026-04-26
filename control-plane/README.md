@@ -25,6 +25,8 @@ ln -sf $(pwd)/bin/dm-ccx ~/.local/bin/dm-ccx
 | `ccxctl grow-root [GB]` | grow root volume + growpart + resize2fs via ssh |
 | `ccxctl snapshot [NOTE]` | snapshot home volume, tagged |
 | `ccxctl menu` | state-aware dmenu, re-execs the chosen subcommand |
+| `ccxctl session launch --agent AGENT --dir DIR` | create a tmux window running `claude` or `codex` |
+| `ccxctl session list` | list active agent sessions, uptime, and usage when available |
 
 ## DNS note
 
