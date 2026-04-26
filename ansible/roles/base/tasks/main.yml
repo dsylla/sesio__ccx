@@ -100,10 +100,18 @@
     state: started
 
 # Install uv system-wide so the ccx-cli venv + ansible shims can find it
-# without relying on any per-user install. The official installer is a
-# one-shot curl|sh; UV_INSTALL_DIR pins the target.
+# without relying on any per-user install. UV_INSTALL_DIR pins the target;
+# the second task's `creates:` makes the whole sequence idempotent.
+- name: Download uv installer
+  ansible.builtin.get_url:
+    url: https://astral.sh/uv/install.sh
+    dest: /tmp/uv-install.sh
+    mode: "0755"
+  changed_when: false
+
 - name: Install uv system-wide at /usr/local/bin/uv
-  ansible.builtin.shell: |
-    curl -LsSf https://astral.sh/uv/install.sh | UV_INSTALL_DIR=/usr/local/bin sh
+  ansible.builtin.command: /bin/sh /tmp/uv-install.sh
+  environment:
+    UV_INSTALL_DIR: /usr/local/bin
   args:
     creates: /usr/local/bin/uv
