@@ -62,7 +62,7 @@ LOGO = f"""{C.CYAN}{C.BOLD}\
   ██║     ██║      ╚███╔╝
   ██║     ██║      ██╔██╗
   ╚██████╗╚██████╗██╔╝ ██╗
-   ╚═════╝ ╚═════╝╚═╝  ╚═╝{C.RESET}  {C.DIM}Claude Code X · ssdd linux{C.RESET}"""
+   ╚═════╝ ╚═════╝╚═╝  ╚═╝{C.RESET}  {C.DIM}ccx coding station · ssdd linux{C.RESET}"""
 
 
 def section(color: str, title: str, body_lines: list[str]) -> list[str]:
@@ -324,13 +324,18 @@ def render_motd(
         ses_body = []
         for s in sessions["sessions"]:
             up = format_uptime(s["uptime_seconds"] or 0) if s.get("uptime_seconds") else "-"
-            toks = s["tokens_today"]
+            sess_usage = s.get("usage_today") or s.get("tokens_today") or {}
+            if sess_usage.get("available", True):
+                usage_part = (
+                    f"in {C.BOLD}{sess_usage.get('input', 0)}{C.RESET}  "
+                    f"out {C.BOLD}{sess_usage.get('output', 0)}{C.RESET}"
+                )
+            else:
+                usage_part = "usage -"
             ses_body.append(
-                f"{C.GREEN}●{C.RESET} {C.BOLD}{s['slug']:<6}{C.RESET} "
-                f"{C.DIM}{s['cwd']}{C.RESET}   "
-                f"up {C.BOLD}{up}{C.RESET}   "
-                f"in {C.BOLD}{toks['input']}{C.RESET}  "
-                f"out {C.BOLD}{toks['output']}{C.RESET}"
+                f"{C.GREEN}●{C.RESET} {C.BOLD}{s.get('agent', 'claude'):<6}{C.RESET} "
+                f"{C.BOLD}{s['slug']:<10}{C.RESET} {C.DIM}{s['cwd']}{C.RESET}   "
+                f"up {C.BOLD}{up}{C.RESET}   {usage_part}"
             )
     else:
         ses_body = [f"{C.DIM}(no sessions){C.RESET}"]

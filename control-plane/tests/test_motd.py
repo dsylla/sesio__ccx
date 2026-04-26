@@ -188,3 +188,31 @@ def test_render_motd_smoke():
     assert "abc1234" in out
     assert "▎" in out  # left-rule vertical bar
     assert "SYSTEM" in out and "DOTFILES" in out
+
+
+def test_render_motd_shows_mixed_agent_sessions():
+    from ccx.motd import render_motd
+
+    system = {"hostname": "ccx", "uptime": "1h", "cpu_pct": 5, "ram_pct": 10,
+              "disk_used": "10G", "disk_total": "100G", "disk_pct": 10}
+    instance = {"instance_id": "i-abc", "instance_type": "t4g.xlarge",
+                "region": "eu-west-1", "az": "eu-west-1a",
+                "public_ip": "1.2.3.4", "public_hostname": "h.example.com"}
+    sessions = {"sessions": [
+        {"agent": "claude", "slug": "api", "cwd": "/work/api", "uptime_seconds": 60,
+         "usage_today": {"input": 10, "output": 5, "available": True},
+         "tokens_today": {"input": 10, "output": 5}},
+        {"agent": "codex", "slug": "ui", "cwd": "/work/ui", "uptime_seconds": 120,
+         "usage_today": {"input": 0, "output": 0, "available": False},
+         "tokens_today": {"input": 0, "output": 0}},
+    ]}
+    usage = {"today": {"input": 10, "output": 5, "total": 15}}
+    services = {"services": [("docker", "active")]}
+    dotfiles = {"sesio__ccx": {"sha": "abc1234", "behind": 0}}
+
+    out = render_motd(system, instance, sessions, usage, services, dotfiles)
+
+    assert "Claude Code X" not in out
+    assert "claude" in out
+    assert "codex" in out
+    assert "usage -" in out
