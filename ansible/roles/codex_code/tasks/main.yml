@@ -1,0 +1,11 @@
+---
+- name: Install @openai/codex globally via asdf Node
+  become_user: "{{ target_user }}"
+  become: true
+  ansible.builtin.shell: |
+    source "{{ target_home }}/.asdf/asdf.sh"
+    npm install -g @openai/codex
+  args:
+    executable: /bin/bash
+  register: _codex_install
+  changed_when: "'added' in _codex_install.stdout or 'updated' in _codex_install.stdout or 'changed' in _codex_install.stdout"

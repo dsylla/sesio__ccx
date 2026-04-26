@@ -12,6 +12,8 @@
     - asdf
     - docker
     - claude_code
+    - codex_code
+    - codex_config
     - claude_plugins
     - rtk
     - motd

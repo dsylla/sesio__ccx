@@ -41,6 +41,17 @@
   register: _v_claude
   changed_when: false
 
+- name: Verify codex cli
+  become_user: "{{ target_user }}"
+  become: true
+  ansible.builtin.shell: |
+    source "{{ target_home }}/.asdf/asdf.sh"
+    codex --version
+  args:
+    executable: /bin/bash
+  register: _v_codex
+  changed_when: false
+
 - name: Verify aws cli
   ansible.builtin.shell: aws --version
   register: _v_aws
@@ -88,6 +99,7 @@
       asdf:
       {{ _v_asdf.stdout | indent(8, true) }}
       claude:        {{ _v_claude.stdout | trim }}
+      codex:         {{ _v_codex.stdout | trim }}
       aws:           {{ _v_aws.stdout | trim }}
       rtk:           {{ _v_rtk.stdout | trim }}
       claude-config: {{ _v_claude_config.stdout | trim }}

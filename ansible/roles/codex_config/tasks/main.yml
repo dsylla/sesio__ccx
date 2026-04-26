@@ -1,0 +1,18 @@
+---
+- name: Ensure ~/.codex exists
+  become_user: "{{ target_user }}"
+  become: true
+  ansible.builtin.file:
+    path: "{{ target_home }}/.codex"
+    state: directory
+    mode: "0700"
+
+- name: Install baseline Codex config if absent
+  become_user: "{{ target_user }}"
+  become: true
+  ansible.builtin.copy:
+    src: "{{ repo_clone_path }}/dotfiles/.codex/config.toml"
+    dest: "{{ target_home }}/.codex/config.toml"
+    remote_src: true
+    force: false
+    mode: "0600"
