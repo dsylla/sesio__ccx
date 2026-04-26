@@ -52,6 +52,15 @@
   register: _v_codex
   changed_when: false
 
+- name: Verify codex MCP list
+  become_user: "{{ target_user }}"
+  become: true
+  environment:
+    PATH: "{{ target_home }}/.asdf/shims:/usr/local/bin:/usr/bin:/bin"
+  ansible.builtin.command: codex mcp list
+  register: _v_codex_mcp
+  changed_when: false
+
 - name: Verify aws cli
   ansible.builtin.shell: aws --version
   register: _v_aws
@@ -100,6 +109,7 @@
       {{ _v_asdf.stdout | indent(8, true) }}
       claude:        {{ _v_claude.stdout | trim }}
       codex:         {{ _v_codex.stdout | trim }}
+      codex-mcp:     {{ (_v_codex_mcp.rc == 0) | ternary('ok', 'failed') }}
       aws:           {{ _v_aws.stdout | trim }}
       rtk:           {{ _v_rtk.stdout | trim }}
       claude-config: {{ _v_claude_config.stdout | trim }}

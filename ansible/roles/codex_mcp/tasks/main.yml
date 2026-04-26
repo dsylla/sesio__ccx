@@ -1,0 +1,56 @@
+---
+- name: Probe each Codex stdio MCP for existence
+  become_user: "{{ target_user }}"
+  become: true
+  environment:
+    PATH: "{{ target_home }}/.asdf/shims:/usr/local/bin:/usr/bin:/bin"
+  ansible.builtin.command: "codex mcp get {{ item.name }}"
+  loop: "{{ mcp_stdio_servers }}"
+  loop_control:
+    label: "{{ item.name }}"
+  register: _codex_mcp_probe
+  changed_when: false
+  failed_when: false
+
+- name: Install missing Codex stdio MCP servers
+  become_user: "{{ target_user }}"
+  become: true
+  environment:
+    PATH: "{{ target_home }}/.asdf/shims:/usr/local/bin:/usr/bin:/bin"
+  ansible.builtin.command:
+    cmd: >-
+      codex mcp add
+      {% for env in item.item.config.env | default({}) | dict2items %}
+      --env {{ env.key }}={{ env.value }}
+      {% endfor %}
+      {{ item.item.name }} -- {{ item.item.config.command }}
+      {{ item.item.config.args | default([]) | join(' ') }}
+  loop: "{{ _codex_mcp_probe.results }}"
+  loop_control:
+    label: "{{ item.item.name }}"
+  when: item.rc != 0
+
+- name: Probe each Codex HTTP MCP for existence
+  become_user: "{{ target_user }}"
+  become: true
+  environment:
+    PATH: "{{ target_home }}/.asdf/shims:/usr/local/bin:/usr/bin:/bin"
+  ansible.builtin.command: "codex mcp get {{ item.name }}"
+  loop: "{{ mcp_http_servers }}"
+  loop_control:
+    label: "{{ item.name }}"
+  register: _codex_mcp_http_probe
+  changed_when: false
+  failed_when: false
+
+- name: Install missing Codex HTTP MCP servers
+  become_user: "{{ target_user }}"
+  become: true
+  environment:
+    PATH: "{{ target_home }}/.asdf/shims:/usr/local/bin:/usr/bin:/bin"
+  ansible.builtin.command:
+    cmd: "codex mcp add --url {{ item.item.url }} {{ item.item.name }}"
+  loop: "{{ _codex_mcp_http_probe.results }}"
+  loop_control:
+    label: "{{ item.item.name }}"
+  when: item.rc != 0

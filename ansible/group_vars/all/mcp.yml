@@ -1,0 +1,75 @@
+---
+# Shared MCP server catalog — used by both claude_plugins and codex_mcp roles.
+# `command` strings use bare names (uvx, npx) so PATH resolves them per host
+# (uvx is /usr/local/bin/uvx after the base role installs uv; npx comes from
+# the asdf nodejs shim).
+mcp_stdio_servers:
+  - name: python-repl
+    config:
+      command: uvx
+      args: ["mcp-python"]
+
+  - name: context7
+    config:
+      command: npx
+      args: ["-y", "@upstash/context7-mcp"]
+
+  - name: aws
+    config:
+      command: uvx
+      args: ["awslabs.ccapi-mcp-server@latest"]
+      env:
+        AWS_PROFILE: sesio__euwest1
+        AWS_REGION: eu-west-1
+
+  - name: terraform
+    config:
+      command: npx
+      args: ["-y", "terraform-mcp-server"]
+
+  - name: filesystem
+    config:
+      command: npx
+      args:
+        - "-y"
+        - "@modelcontextprotocol/server-filesystem"
+        - "{{ target_home }}"
+        - "{{ target_home }}/.claude"
+
+  - name: git
+    config:
+      command: npx
+      args: ["-y", "@mseep/git-mcp-server"]
+
+  - name: sequential-thinking
+    config:
+      command: npx
+      args: ["-y", "@modelcontextprotocol/server-sequential-thinking"]
+
+  - name: memory
+    config:
+      command: npx
+      args: ["-y", "@modelcontextprotocol/server-memory"]
+      env:
+        MEMORY_FILE_PATH: "{{ target_home }}/.claude/memory/knowledge.jsonl"
+
+  - name: docker
+    config:
+      command: uvx
+      args: ["docker-mcp"]
+
+  - name: ruff
+    config:
+      command: uvx
+      args: ["mcp-server-analyzer"]
+
+  - name: cloudwatch
+    config:
+      command: uvx
+      args: ["awslabs.cloudwatch-mcp-server@latest"]
+
+# HTTP transport MCPs (added via `claude mcp add --transport http` /
+# `codex mcp add --url`).
+mcp_http_servers:
+  - name: cognee
+    url: https://cognee.local.ssdd.io/mcp

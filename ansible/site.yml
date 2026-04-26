@@ -14,6 +14,7 @@
     - claude_code
     - codex_code
     - codex_config
+    - codex_mcp
     - claude_plugins
     - rtk
     - motd
