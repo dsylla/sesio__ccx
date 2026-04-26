@@ -252,3 +252,20 @@ def test_session_attach_with_slug_targets_window(monkeypatch):
     monkeypatch.setattr("ccx.sessions.os.execvp", lambda _, argv: captured.append(argv))
     CliRunner().invoke(app, ["attach", "ccx"])
     assert captured[0] == ["tmux", "attach-session", "-t", f"{SESSION_NAME}:ccx"]
+
+
+def test_agent_catalog_contains_claude_and_codex():
+    from ccx.agents import AGENTS, DEFAULT_AGENT, get_agent
+
+    assert DEFAULT_AGENT == "claude"
+    assert get_agent("claude").command == "claude"
+    assert get_agent("codex").command == "codex"
+    assert set(AGENTS) >= {"claude", "codex"}
+
+
+def test_agent_window_names_round_trip_and_legacy_claude():
+    from ccx.agents import split_window_name, window_name
+
+    assert window_name("codex", "sesio__ccx") == "codex:sesio__ccx"
+    assert split_window_name("codex:sesio__ccx") == ("codex", "sesio__ccx")
+    assert split_window_name("sesio__ccx") == ("claude", "sesio__ccx")
