@@ -27,3 +27,4 @@ __pycache__/
 
 # Misc
 .DS_Store
+.worktrees/
