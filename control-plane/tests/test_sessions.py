@@ -254,6 +254,8 @@ def test_session_attach_with_slug_targets_window(monkeypatch):
     from ccx.sessions import app, SESSION_NAME
     captured: list[list[str]] = []
     monkeypatch.setattr("ccx.sessions.os.execvp", lambda _, argv: captured.append(argv))
+    # Bare slug matches an existing legacy claude window
+    monkeypatch.setattr("ccx.sessions.tmux_has_window", lambda s, **_: True)
     CliRunner().invoke(app, ["attach", "ccx"])
     assert captured[0] == ["tmux", "attach-session", "-t", f"{SESSION_NAME}:ccx"]
 
@@ -323,3 +325,47 @@ def test_collect_sessions_reports_agent_and_legacy_claude(tmp_path, monkeypatch)
     assert rows[1]["slug"] == "modern"
     assert rows[1]["agent_pid"] == 103
     assert rows[1]["usage_today"]["available"] is False
+
+
+def test_session_launch_codex_starts_codex_window(tmp_path):
+    from ccx.sessions import app
+
+    calls: list[list[str]] = []
+
+    def fake_run(argv, **kwargs):
+        calls.append(argv)
+        if "has-session" in argv:
+            return _mock_run(returncode=1)
+        return _mock_run(returncode=0)
+
+    with patch("ccx.sessions.subprocess.run", side_effect=fake_run):
+        result = CliRunner().invoke(app, ["launch", "--agent", "codex", "--dir", str(tmp_path)])
+
+    assert result.exit_code == 0
+    new_window = next(c for c in calls if "new-window" in c)
+    assert "codex:{}".format(tmp_path.name.lower()) in new_window
+    assert new_window[-1] == "codex"
+
+
+def test_session_list_table_includes_agent():
+    from ccx.sessions import app
+
+    row = {
+        "agent": "codex",
+        "slug": "ccx",
+        "window": "codex:ccx",
+        "cwd": "/work/ccx",
+        "pane_pid": 42,
+        "agent_pid": 102,
+        "claude_pid": None,
+        "uptime_seconds": 120.0,
+        "usage_today": {"input": 0, "output": 0, "available": False},
+        "tokens_today": {"input": 0, "output": 0},
+    }
+    with patch("ccx.sessions.collect_sessions", return_value=[row]):
+        result = CliRunner().invoke(app, ["list"])
+
+    assert result.exit_code == 0
+    assert "AGENT" in result.stdout
+    assert "codex" in result.stdout
+    assert "ccx" in result.stdout

@@ -10,7 +10,7 @@ import time
 import typer
 from pathlib import Path
 
-from ccx.agents import AgentSpec, get_agent, split_window_name
+from ccx.agents import AgentSpec, DEFAULT_AGENT, get_agent, split_window_name, window_name
 
 
 def slug(path: str) -> str:
@@ -232,40 +232,61 @@ def _ensure_session() -> None:
     )
 
 
-def _tmux_new_window(slug_: str, cwd: str) -> None:
+def _tmux_new_window(agent: AgentSpec, tmux_window: str, cwd: str) -> None:
     subprocess.run(
-        ["tmux", "new-window", "-t", SESSION_NAME, "-n", slug_, "-c", cwd, "--", "claude"],
+        ["tmux", "new-window", "-t", SESSION_NAME, "-n", tmux_window, "-c", cwd, "--", agent.command],
         capture_output=True, check=False, timeout=5,
     )
 
 
-def _tmux_kill_window(slug_: str) -> None:
+def _tmux_kill_window(tmux_window: str) -> None:
     subprocess.run(
-        ["tmux", "kill-window", "-t", f"{SESSION_NAME}:{slug_}"],
+        ["tmux", "kill-window", "-t", f"{SESSION_NAME}:{tmux_window}"],
         capture_output=True, check=False, timeout=3,
     )
+
+
+def _resolve_window_target(slug_: str, agent_name: str | None = None) -> str:
+    """Resolve a user-supplied slug to a tmux window name.
+
+    - `agent:slug` is taken as-is.
+    - With explicit `--agent`, prefix the slug.
+    - Without one, prefer an existing bare-slug window (legacy claude), else default agent.
+    """
+    if ":" in slug_:
+        return slug_
+    if agent_name:
+        return window_name(agent_name, slug_)
+    if tmux_has_window(slug_):
+        return slug_
+    return window_name(DEFAULT_AGENT, slug_)
 
 
 @app.command("launch")
 def cmd_launch(
     dir: str = typer.Option(".", "--dir", "-d", help="Project directory."),
+    agent_name: str = typer.Option(DEFAULT_AGENT, "--agent", "-a", help="Agent to launch."),
 ):
-    """Create (or attach) a tmux window for DIR running claude."""
+    """Create (or attach) a tmux window for DIR running the given agent."""
+    try:
+        agent = get_agent(agent_name)
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc)) from exc
     path = os.path.abspath(os.path.expanduser(dir))
-    s = slug(path)
+    tmux_window = window_name(agent.name, slug(path))
     _ensure_session()
-    if tmux_has_window(s):
-        typer.echo(f"window {SESSION_NAME}:{s} already open")
+    if tmux_has_window(tmux_window):
+        typer.echo(f"window {SESSION_NAME}:{tmux_window} already open")
         return
-    _tmux_new_window(s, path)
-    typer.echo(f"launched {SESSION_NAME}:{s} (cwd={path})")
+    _tmux_new_window(agent, tmux_window, path)
+    typer.echo(f"launched {SESSION_NAME}:{tmux_window} (cwd={path})")
 
 
 @app.command("list")
 def cmd_list(
     as_json: bool = typer.Option(False, "--json", help="Emit JSON."),
 ):
-    """List sessions with claude pid, uptime, today's tokens."""
+    """List sessions with agent, pid, uptime, today's usage."""
     rows = collect_sessions()
     if as_json:
         typer.echo(json.dumps(rows, default=str))
@@ -273,29 +294,48 @@ def cmd_list(
     if not rows:
         typer.echo("(no sessions)")
         return
-    # Simple aligned table
-    typer.echo(f"{'SLUG':<20} {'PID':>8} {'UPTIME':>10} {'IN':>10} {'OUT':>10}  CWD")
+    typer.echo(
+        f"{'AGENT':<8} {'SLUG':<20} {'PID':>8} {'UPTIME':>10} {'IN':>10} {'OUT':>10}  CWD"
+    )
     for r in rows:
         uptime = f"{int(r['uptime_seconds'] // 60)}m" if r.get("uptime_seconds") else "-"
-        pid = r["claude_pid"] or "-"
-        toks = r["tokens_today"]
+        pid = r.get("agent_pid") or r.get("claude_pid") or "-"
+        usage = r.get("usage_today")
+        if usage is None:
+            toks = r.get("tokens_today") or {"input": 0, "output": 0}
+            usage = {"input": toks["input"], "output": toks["output"], "available": True}
+        if usage.get("available", True):
+            in_s = f"{usage.get('input', 0):>10}"
+            out_s = f"{usage.get('output', 0):>10}"
+        else:
+            in_s = out_s = f"{'-':>10}"
         typer.echo(
-            f"{r['slug']:<20} {str(pid):>8} {uptime:>10} {toks['input']:>10} {toks['output']:>10}  {r['cwd']}"
+            f"{r.get('agent', 'claude'):<8} {r['slug']:<20} {str(pid):>8} {uptime:>10} {in_s} {out_s}  {r['cwd']}"
         )
 
 
 @app.command("attach")
-def cmd_attach(slug_: str = typer.Argument(None, help="Window slug. Default: MRU.")):
+def cmd_attach(
+    slug_: str = typer.Argument(None, help="Window slug or agent:slug. Default: MRU."),
+    agent_name: str | None = typer.Option(None, "--agent", "-a", help="Agent prefix for bare slug."),
+):
     """Attach to the shared ccx tmux session, optionally selecting a window."""
-    target = f"{SESSION_NAME}:{slug_}" if slug_ else SESSION_NAME
+    if slug_:
+        target = f"{SESSION_NAME}:{_resolve_window_target(slug_, agent_name)}"
+    else:
+        target = SESSION_NAME
     os.execvp("tmux", ["tmux", "attach-session", "-t", target])
 
 
 @app.command("kill")
-def cmd_kill(slug_: str = typer.Argument(..., help="Window slug.")):
+def cmd_kill(
+    slug_: str = typer.Argument(..., help="Window slug or agent:slug."),
+    agent_name: str | None = typer.Option(None, "--agent", "-a", help="Agent prefix for bare slug."),
+):
     """Kill a session window."""
-    _tmux_kill_window(slug_)
-    typer.echo(f"killed {SESSION_NAME}:{slug_}")
+    target = _resolve_window_target(slug_, agent_name)
+    _tmux_kill_window(target)
+    typer.echo(f"killed {SESSION_NAME}:{target}")
 
 
 @app.command("menu")
