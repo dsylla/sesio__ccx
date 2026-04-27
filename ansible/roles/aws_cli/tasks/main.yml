@@ -16,3 +16,14 @@
   ansible.builtin.command: /tmp/aws/install --update
   when: _awscli_version.rc != 0
   changed_when: true
+
+# git-remote-codecommit is the supported way to clone codecommit:// URLs without
+# storing IAM HTTPS credentials. Installed system-wide via uv tool so the helper
+# is on every user's PATH (git looks up `git-remote-<protocol>` on PATH).
+- name: Install git-remote-codecommit system-wide via uv tool
+  ansible.builtin.command: /usr/local/bin/uv tool install git-remote-codecommit
+  environment:
+    UV_TOOL_DIR: /opt/uv-tools
+    UV_TOOL_BIN_DIR: /usr/local/bin
+  args:
+    creates: /usr/local/bin/git-remote-codecommit
