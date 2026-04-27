@@ -49,6 +49,7 @@
       - ncurses-bin   # provides `tic` for the alacritty terminfo install
       - python3
       - python3-pip
+      - tree
     state: present
 
 - name: Configure unattended-upgrades (security only)
