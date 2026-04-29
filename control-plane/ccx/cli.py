@@ -317,6 +317,9 @@ app = typer.Typer(
 from ccx.sessions import app as _sessions_app
 app.add_typer(_sessions_app, name="session", help="Manage claude sessions (tmux).")
 
+from ccx.monitor import app as _monitor_app
+app.add_typer(_monitor_app, name="monitor", help="Manage the Claude Code agent monitor service.")
+
 
 @app.command()
 def motd() -> None:
