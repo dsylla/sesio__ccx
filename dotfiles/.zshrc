@@ -86,7 +86,14 @@ ZSH_THEME="powerlevel10k/powerlevel10k"
 # Custom plugins may be added to ~/.oh-my-zsh/custom/plugins/
 # Example format: plugins=(rails git textmate ruby lighthouse)
 # Add wisely, as too many plugins slow down shell startup.
-plugins=(git asdf sudo ruby aws shell-aws-autoprofile)
+plugins=(git asdf sudo ruby aws)
+# shell-aws-autoprofile reads .awsprofile files in cwd and exports AWS_PROFILE.
+# On the ccx EC2 the instance role is the only credential source we want; a
+# named profile makes botocore raise ProfileNotFound. The base ansible role
+# drops /etc/ccx-is-ec2 — skip the plugin there.
+if [[ ! -e /etc/ccx-is-ec2 ]]; then
+  plugins+=(shell-aws-autoprofile)
+fi
 
 if [ -f $ZSH/oh-my-zsh.sh ]; then
   source $ZSH/oh-my-zsh.sh

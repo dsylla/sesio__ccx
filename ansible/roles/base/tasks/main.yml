@@ -15,6 +15,17 @@
     line: "127.0.1.1 {{ ccx_hostname | default('ccx.dsylla.sesio.io') }} {{ (ccx_hostname | default('ccx.dsylla.sesio.io')).split('.') | first }}"
     state: present
 
+# Sentinel that .zshrc keys off to skip shell-aws-autoprofile, so AWS calls
+# fall through to the EC2 instance role rather than chasing a named profile
+# that doesn't exist in ~/.aws/config (botocore raises ProfileNotFound).
+- name: Drop /etc/ccx-is-ec2 sentinel for dotfiles to detect this host
+  ansible.builtin.copy:
+    dest: /etc/ccx-is-ec2
+    content: ""
+    mode: "0644"
+    owner: root
+    group: root
+
 - name: Tell cloud-init to stop resetting the hostname from DHCP
   # Debian 13's cloud-init rewrites /etc/hostname every boot from the
   # EC2 metadata. `preserve_hostname: true` pins whatever we set above.

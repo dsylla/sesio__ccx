@@ -27,3 +27,16 @@
     UV_TOOL_BIN_DIR: /usr/local/bin
   args:
     creates: /usr/local/bin/git-remote-codecommit
+
+# The ccx EC2 uses its IAM instance role for all AWS auth; named profiles
+# only get in the way (e.g. git-remote-codecommit raises ProfileNotFound when
+# AWS_PROFILE is set to a profile that isn't in ~/.aws/config). Make sure no
+# stray ~/.aws/config sits around — earlier provisioning experimented with
+# adding one. The instance role is picked up via the default credential
+# chain (IMDS) without any config file.
+- name: Ensure no ~/.aws/config exists (rely on EC2 instance role only)
+  become_user: "{{ target_user }}"
+  become: true
+  ansible.builtin.file:
+    path: "{{ target_home }}/.aws/config"
+    state: absent
