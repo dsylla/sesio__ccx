@@ -3,7 +3,11 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
+import signal
 import subprocess
+import time
+from pathlib import Path
 
 import typer
 
@@ -19,6 +23,30 @@ app = typer.Typer(
 UNIT = "agent-monitor"
 PORT = 4820
 SENTINEL = "@@@"
+DASHBOARD_URL = f"http://localhost:{PORT}"
+
+# Background-tunnel pidfile lives in $XDG_RUNTIME_DIR (cleared at logout — same
+# lifetime as the persistent notification id). Falls back to /tmp.
+_TUNNEL_PIDFILE = Path(
+    os.environ.get("XDG_RUNTIME_DIR") or "/tmp"
+) / "ccx-monitor-tunnel.pid"
+
+
+def _tunnel_pid() -> int | None:
+    """Return the pid of the running tunnel if alive, else None (cleans stale file)."""
+    try:
+        pid = int(_TUNNEL_PIDFILE.read_text().strip())
+    except (FileNotFoundError, ValueError):
+        return None
+    try:
+        os.kill(pid, 0)
+        return pid
+    except (ProcessLookupError, PermissionError):
+        try:
+            _TUNNEL_PIDFILE.unlink()
+        except FileNotFoundError:
+            pass
+        return None
 
 
 def _ssh_base() -> list[str]:
@@ -94,6 +122,85 @@ def cmd_tunnel(
         print(f"ssh -L {forward} -N {cli.CFG.ssh_user}@{cli.CFG.hostname}")
         return
     os.execvp("ssh", argv)
+
+
+@app.command("open")
+def cmd_open(
+    no_browser: bool = typer.Option(
+        False, "--no-browser", help="Start the tunnel only; don't open the browser.",
+    ),
+) -> None:
+    """Start a detached SSH tunnel (idempotent) and open the dashboard in a browser."""
+    pid = _tunnel_pid()
+    if pid is None:
+        forward = f"{PORT}:127.0.0.1:{PORT}"
+        argv = [
+            "ssh",
+            "-i", str(cli.CFG.ssh_key),
+            "-o", "IdentitiesOnly=yes",
+            "-o", "StrictHostKeyChecking=accept-new",
+            "-o", "ExitOnForwardFailure=yes",
+            "-N", "-L", forward,
+            f"{cli.CFG.ssh_user}@{cli.CFG.hostname}",
+        ]
+        # start_new_session detaches from this session so closing the parent
+        # shell doesn't kill the tunnel.
+        proc = subprocess.Popen(
+            argv,
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+        _TUNNEL_PIDFILE.write_text(str(proc.pid))
+        # Wait briefly for the listener to accept connections (ssh forks
+        # fast, but the channel takes ~200-500ms to open). Cap at 5 s.
+        deadline = time.monotonic() + 5.0
+        while time.monotonic() < deadline:
+            if proc.poll() is not None:
+                die(f"ssh exited rc={proc.returncode} during tunnel setup")
+            try:
+                import socket
+                with socket.create_connection(("127.0.0.1", PORT), timeout=0.5):
+                    break
+            except OSError:
+                time.sleep(0.2)
+        else:
+            die(f"tunnel did not become reachable at localhost:{PORT}")
+        step(f"tunnel up (pid {proc.pid})")
+    else:
+        sub(f"tunnel already running (pid {pid})")
+
+    if no_browser:
+        ok(f"tunnel ready — visit {DASHBOARD_URL}")
+        return
+
+    opener = shutil.which("xdg-open") or shutil.which("open")
+    if not opener:
+        ok(f"tunnel ready — visit {DASHBOARD_URL} (no xdg-open found)")
+        return
+    subprocess.Popen(
+        [opener, DASHBOARD_URL],
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+    ok(f"opened {DASHBOARD_URL}")
+
+
+@app.command("close")
+def cmd_close() -> None:
+    """Kill the detached SSH tunnel started by `ccxctl monitor open`."""
+    pid = _tunnel_pid()
+    if pid is None:
+        sub("no tunnel running")
+        return
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except ProcessLookupError:
+        pass
+    try:
+        _TUNNEL_PIDFILE.unlink()
+    except FileNotFoundError:
+        pass
+    ok(f"tunnel closed (pid {pid})")
 
 
 @app.command("logs")

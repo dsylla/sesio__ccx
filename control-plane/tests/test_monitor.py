@@ -18,14 +18,13 @@ def _mock_run(stdout: str = "", returncode: int = 0, stderr: str = ""):
 
 
 def test_monitor_help_lists_subcommands():
-    """Top-level monitor --help should mention the three subcommands."""
+    """Top-level monitor --help should mention all subcommands."""
     from ccx.cli import app
     result = CliRunner().invoke(app, ["monitor", "--help"])
     assert result.exit_code == 0
     out = result.stdout
-    assert "status" in out
-    assert "tunnel" in out
-    assert "logs" in out
+    for cmd in ("status", "tunnel", "logs", "open", "close"):
+        assert cmd in out
 
 
 def test_status_active_and_healthy():
@@ -180,3 +179,97 @@ def test_status_uses_configured_host_and_user(monkeypatch):
     assert result.exit_code == 0
     argv = captured[0]
     assert any(a == "alice@alt.example.test" for a in argv)
+
+
+def test_open_when_tunnel_already_running_skips_spawn(monkeypatch, tmp_path):
+    """open is idempotent: live pidfile → no Popen, browser still launches."""
+    from ccx import monitor as mon
+    from ccx.monitor import app
+
+    pid_file = tmp_path / "tunnel.pid"
+    pid_file.write_text("12345")
+    monkeypatch.setattr(mon, "_TUNNEL_PIDFILE", pid_file)
+    monkeypatch.setattr(mon.os, "kill", lambda pid, sig: None)  # process "alive"
+    popen_calls: list[list[str]] = []
+    monkeypatch.setattr(
+        mon.subprocess, "Popen",
+        lambda argv, **kw: popen_calls.append(argv) or MagicMock(pid=999),
+    )
+    monkeypatch.setattr(mon.shutil, "which", lambda name: "/usr/bin/xdg-open")
+
+    result = CliRunner().invoke(app, ["open"])
+    assert result.exit_code == 0
+    # Only the browser opener should have been Popen'd, not ssh.
+    assert len(popen_calls) == 1
+    assert popen_calls[0][0] == "/usr/bin/xdg-open"
+    assert popen_calls[0][1].startswith("http://localhost:4820")
+
+
+def test_open_no_browser_does_not_invoke_xdg_open(monkeypatch, tmp_path):
+    """--no-browser skips the opener Popen even when xdg-open is present."""
+    from ccx import monitor as mon
+    from ccx.monitor import app
+
+    pid_file = tmp_path / "tunnel.pid"
+    pid_file.write_text("12345")
+    monkeypatch.setattr(mon, "_TUNNEL_PIDFILE", pid_file)
+    monkeypatch.setattr(mon.os, "kill", lambda pid, sig: None)
+    monkeypatch.setattr(mon.shutil, "which", lambda name: "/usr/bin/xdg-open")
+    popen_calls: list[list[str]] = []
+    monkeypatch.setattr(
+        mon.subprocess, "Popen",
+        lambda argv, **kw: popen_calls.append(argv) or MagicMock(pid=999),
+    )
+
+    result = CliRunner().invoke(app, ["open", "--no-browser"])
+    assert result.exit_code == 0
+    assert popen_calls == []  # neither ssh nor opener
+
+
+def test_close_kills_pid_and_removes_file(monkeypatch, tmp_path):
+    """close: SIGTERM the pid in the file and unlink the file."""
+    from ccx import monitor as mon
+    from ccx.monitor import app
+
+    pid_file = tmp_path / "tunnel.pid"
+    pid_file.write_text("54321")
+    monkeypatch.setattr(mon, "_TUNNEL_PIDFILE", pid_file)
+    monkeypatch.setattr(mon.os, "kill", lambda pid, sig: None)  # alive for _tunnel_pid; SIGTERM no-op
+    killed: list[tuple[int, int]] = []
+    monkeypatch.setattr(mon.os, "kill", lambda pid, sig: killed.append((pid, sig)))
+
+    result = CliRunner().invoke(app, ["close"])
+    assert result.exit_code == 0
+    # First kill(0) probe + then SIGTERM
+    assert (54321, 0) in killed
+    assert any(sig != 0 for _, sig in killed)  # SIGTERM
+    assert not pid_file.exists()
+
+
+def test_close_when_no_tunnel_is_a_noop(monkeypatch, tmp_path):
+    """close: missing pidfile → exit 0, no kill calls."""
+    from ccx import monitor as mon
+    from ccx.monitor import app
+
+    monkeypatch.setattr(mon, "_TUNNEL_PIDFILE", tmp_path / "missing.pid")
+    killed: list = []
+    monkeypatch.setattr(mon.os, "kill", lambda pid, sig: killed.append((pid, sig)))
+
+    result = CliRunner().invoke(app, ["close"])
+    assert result.exit_code == 0
+    assert killed == []
+
+
+def test_tunnel_pid_clears_stale_file(monkeypatch, tmp_path):
+    """_tunnel_pid: pidfile points at a dead pid → returns None, removes file."""
+    from ccx import monitor as mon
+
+    pid_file = tmp_path / "stale.pid"
+    pid_file.write_text("99999")
+    monkeypatch.setattr(mon, "_TUNNEL_PIDFILE", pid_file)
+    def fake_kill(pid, sig):
+        raise ProcessLookupError
+    monkeypatch.setattr(mon.os, "kill", fake_kill)
+
+    assert mon._tunnel_pid() is None
+    assert not pid_file.exists()
