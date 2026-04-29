@@ -1,0 +1,97 @@
+---
+# Tasks for agent_monitor role. The install dir is under /opt; only the
+# directory-create task runs as root. Everything else uses become_user so
+# the working tree (npm, git) stays user-owned, mirroring `claude_plugins`.
+
+- name: Ensure install dir exists (root-owned ancestor, user-owned tree)
+  ansible.builtin.file:
+    path: "{{ agent_monitor_install_dir }}"
+    state: directory
+    owner: "{{ target_user }}"
+    group: "{{ target_user }}"
+    mode: "0755"
+
+- name: Clone agent-monitor (pinned)
+  become_user: "{{ target_user }}"
+  become: true
+  ansible.builtin.git:
+    repo: "{{ agent_monitor_repo }}"
+    dest: "{{ agent_monitor_install_dir }}"
+    version: "{{ agent_monitor_version }}"
+    update: true
+    force: false
+  register: _agent_monitor_repo
+  notify: Restart agent-monitor
+
+- name: Stat node_modules to gate npm setup
+  become_user: "{{ target_user }}"
+  become: true
+  ansible.builtin.stat:
+    path: "{{ agent_monitor_install_dir }}/node_modules"
+  register: _agent_monitor_node_modules
+
+- name: Npm run setup (fresh tree or upstream change)
+  become_user: "{{ target_user }}"
+  become: true
+  ansible.builtin.shell: |
+    source "{{ target_home }}/.asdf/asdf.sh"
+    npm run setup
+  args:
+    chdir: "{{ agent_monitor_install_dir }}"
+    executable: /bin/bash
+  when: not _agent_monitor_node_modules.stat.exists or _agent_monitor_repo.changed
+  changed_when: true
+  notify: Restart agent-monitor
+
+- name: Stat client/dist to gate npm build
+  become_user: "{{ target_user }}"
+  become: true
+  ansible.builtin.stat:
+    path: "{{ agent_monitor_install_dir }}/client/dist/index.html"
+  register: _agent_monitor_client_dist
+
+- name: Npm run build (production React assets)
+  become_user: "{{ target_user }}"
+  become: true
+  ansible.builtin.shell: |
+    source "{{ target_home }}/.asdf/asdf.sh"
+    npm run build
+  args:
+    chdir: "{{ agent_monitor_install_dir }}"
+    executable: /bin/bash
+  when: not _agent_monitor_client_dist.stat.exists or _agent_monitor_repo.changed
+  changed_when: true
+  notify: Restart agent-monitor
+
+- name: Render agent-monitor.service unit
+  ansible.builtin.template:
+    src: agent-monitor.service.j2
+    dest: /etc/systemd/system/agent-monitor.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify:
+    - Daemon-reload
+    - Restart agent-monitor
+
+- name: Enable + start agent-monitor
+  ansible.builtin.systemd:
+    name: agent-monitor
+    enabled: true
+    state: started
+    daemon_reload: true
+
+# Bootstrap the Claude Code hook entries in ~/.claude/settings.json so events
+# flow on the very first session before the service ever restarts. The server
+# itself runs installHooks(silent=true) on every startup, which makes this
+# task idempotent in spirit even though we mark it changed_when=false.
+- name: Bootstrap Claude Code hooks (idempotent on first run; rewritten by server thereafter)
+  become_user: "{{ target_user }}"
+  become: true
+  ansible.builtin.shell: |
+    source "{{ target_home }}/.asdf/asdf.sh"
+    npm run install-hooks
+  args:
+    chdir: "{{ agent_monitor_install_dir }}"
+    executable: /bin/bash
+  changed_when: false
