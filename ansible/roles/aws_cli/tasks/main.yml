@@ -27,3 +27,30 @@
     UV_TOOL_BIN_DIR: /usr/local/bin
   args:
     creates: /usr/local/bin/git-remote-codecommit
+
+# git-remote-codecommit (and any tool that keys off `.awsprofile=sesio__euwest1`)
+# require a *named* profile in ~/.aws/config — the codecommit:// URL format
+# embeds a profile name, so botocore raises ProfileNotFound if it's missing,
+# even when the EC2 instance role would otherwise grant access.
+# `credential_source = Ec2InstanceMetadata` makes the named profile resolve
+# credentials via IMDS instead of static keys.
+- name: Ensure ~/.aws exists
+  become_user: "{{ target_user }}"
+  become: true
+  ansible.builtin.file:
+    path: "{{ target_home }}/.aws"
+    state: directory
+    mode: "0700"
+
+- name: Configure sesio__euwest1 AWS profile (uses EC2 instance role via IMDS)
+  become_user: "{{ target_user }}"
+  become: true
+  ansible.builtin.blockinfile:
+    path: "{{ target_home }}/.aws/config"
+    create: yes
+    mode: "0644"
+    marker: "# {mark} ANSIBLE MANAGED - sesio__euwest1 profile"
+    block: |
+      [profile sesio__euwest1]
+      region = {{ aws_region }}
+      credential_source = Ec2InstanceMetadata
