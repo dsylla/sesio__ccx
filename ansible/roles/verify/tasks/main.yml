@@ -99,6 +99,41 @@
   # mid-byte and break ansible's strict UTF-8 deserialization.
   failed_when: false
 
+- name: Verify agent-monitor service is active
+  ansible.builtin.command: systemctl is-active agent-monitor # noqa: command-instead-of-module
+  register: _v_agent_monitor
+  changed_when: false
+
+- name: Verify /api/health responds (retry — listener may take a few seconds after systemd state=started)
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:4820/api/health"
+    return_content: true
+  register: _v_agent_monitor_health
+  retries: 10
+  delay: 2
+  until: _v_agent_monitor_health.status == 200
+  changed_when: false
+
+- name: Verify Node version is >= 22 (better-sqlite3 → node:sqlite fallback floor)
+  become_user: "{{ target_user }}"
+  become: true
+  ansible.builtin.shell: |
+    source "{{ target_home }}/.asdf/asdf.sh"
+    node -e 'process.exit(parseInt(process.versions.node.split(".")[0],10) >= 22 ? 0 : 1)'
+  args:
+    executable: /bin/bash
+  register: _v_node_22
+  changed_when: false
+
+- name: Verify Claude Code hooks reference hook-handler.js
+  become_user: "{{ target_user }}"
+  become: true
+  ansible.builtin.shell: |
+    grep -q hook-handler.js {{ target_home }}/.claude/settings.json
+  args:
+    executable: /bin/bash
+  changed_when: false
+
 - name: Write provision-ok marker
   ansible.builtin.copy:
     dest: /var/log/ccx-provision-ok
@@ -114,6 +149,9 @@
       rtk:           {{ _v_rtk.stdout | trim }}
       claude-config: {{ _v_claude_config.stdout | trim }}
       motd:          {{ ((_v_motd.rc | default(-1)) == 0) | ternary('ok', '(failed rc=' ~ (_v_motd.rc | default(-1) | string) ~ ')') }}
+      agent-monitor: {{ _v_agent_monitor.stdout | trim }}
+      agent-health:  {{ ((_v_agent_monitor_health.json.status | default('')) == 'ok') | ternary('ok', 'failed') }}
+      agent-hooks:   ok
       time:          {{ ansible_date_time.iso8601 }}
     owner: root
     group: root
