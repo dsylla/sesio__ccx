@@ -8,6 +8,12 @@
     dest: "{{ repo_clone_path }}"
     version: main
     update: yes
+    # The agent-monitor role symlinks ~/.claude/settings.json back to
+    # dotfiles/.claude/settings.json and writes hook entries to it at runtime.
+    # That permanently dirties the working tree and makes `force: no` block
+    # every subsequent provisioning run. agent-monitor reapplies its hooks on
+    # service start (installHooks(silent=true)), so overwriting here is safe.
+    force: yes
 
 - name: Ensure ~/.ssh exists
   become_user: "{{ target_user }}"
