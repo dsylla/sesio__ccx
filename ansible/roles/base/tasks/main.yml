@@ -61,6 +61,16 @@
       - bat
     state: present
 
+# Debian ships bat as `/usr/bin/batcat` (binary name collision with the
+# `bacula-console-qt` package). The .zshrc aliases call `bat`; symlink so
+# both names work without each user creating their own ~/.local/bin alias.
+- name: Symlink batcat -> bat for Debian's renamed bat binary
+  ansible.builtin.file:
+    src: /usr/bin/batcat
+    dest: /usr/local/bin/bat
+    state: link
+    force: yes
+
 - name: Configure unattended-upgrades (security only)
   ansible.builtin.copy:
     dest: /etc/apt/apt.conf.d/50unattended-upgrades
