@@ -40,3 +40,47 @@
   ansible.builtin.file:
     path: "{{ target_home }}/.aws/config"
     state: absent
+
+# CodeArtifact tokens expire after 12h. Refreshing on every shell startup
+# (cached for 11h) keeps `uv sync` working in any sesio repo that uses the
+# private index, with no per-user setup. The instance role grants access; no
+# AWS_PROFILE needed. Both index names are exported because projects vary
+# (sesio__network uses "sesio-codeartifact", others use "sesio").
+- name: Drop /etc/profile.d/sesio-codeartifact.sh
+  ansible.builtin.copy:
+    dest: /etc/profile.d/sesio-codeartifact.sh
+    mode: "0644"
+    owner: root
+    group: root
+    content: |
+      # Managed by ccx ansible (roles/aws_cli). Refreshes a CodeArtifact token
+      # via the EC2 instance role and exports it as uv index credentials. The
+      # cache lives under each user's ~/.cache so concurrent shells don't race.
+      _sesio_ca_cache="${HOME}/.cache/sesio-codeartifact-token"
+
+      _sesio_ca_refresh() {
+        command -v aws >/dev/null 2>&1 || return 1
+        mkdir -p "${HOME}/.cache" 2>/dev/null || return 1
+        if [ ! -s "$_sesio_ca_cache" ] || [ -n "$(find "$_sesio_ca_cache" -mmin +660 2>/dev/null)" ]; then
+          aws codeartifact get-authorization-token \
+            --domain sesio --domain-owner 709389331805 --region eu-west-1 \
+            --query authorizationToken --output text >"${_sesio_ca_cache}.tmp" 2>/dev/null || {
+              rm -f "${_sesio_ca_cache}.tmp"
+              return 1
+            }
+          chmod 600 "${_sesio_ca_cache}.tmp"
+          mv "${_sesio_ca_cache}.tmp" "$_sesio_ca_cache"
+        fi
+      }
+
+      if _sesio_ca_refresh; then
+        UV_INDEX_SESIO_CODEARTIFACT_USERNAME=aws
+        UV_INDEX_SESIO_CODEARTIFACT_PASSWORD="$(cat "$_sesio_ca_cache")"
+        UV_INDEX_SESIO_USERNAME=aws
+        UV_INDEX_SESIO_PASSWORD="$UV_INDEX_SESIO_CODEARTIFACT_PASSWORD"
+        export UV_INDEX_SESIO_CODEARTIFACT_USERNAME UV_INDEX_SESIO_CODEARTIFACT_PASSWORD
+        export UV_INDEX_SESIO_USERNAME UV_INDEX_SESIO_PASSWORD
+      fi
+
+      unset -f _sesio_ca_refresh
+      unset _sesio_ca_cache
