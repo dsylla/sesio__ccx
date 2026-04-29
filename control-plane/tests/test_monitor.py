@@ -38,3 +38,60 @@ def test_status_active_and_healthy():
     assert result.exit_code == 0
     assert "active" in result.stdout
     assert "ok" in result.stdout
+
+
+def test_status_systemd_inactive_exits_nonzero():
+    """systemctl=inactive → exit != 0, error mentions unit name."""
+    from ccx.monitor import app
+    health = json.dumps({"status": "ok"})
+    combined = f"inactive\n@@@\n{health}"
+    with patch("ccx.monitor.subprocess.run", return_value=_mock_run(combined, 0)):
+        result = CliRunner().invoke(app, ["status"])
+    assert result.exit_code != 0
+    # die() emits to stderr, but typer's CliRunner mixes both into output by default
+    assert "agent-monitor" in (result.stdout + result.stderr)
+
+
+def test_status_health_endpoint_unreachable():
+    """systemctl=active but no JSON after sentinel (curl rc!=0) → exit != 0."""
+    from ccx.monitor import app
+    combined = "active\n@@@\n"  # empty health part
+    with patch("ccx.monitor.subprocess.run", return_value=_mock_run(combined, 0)):
+        result = CliRunner().invoke(app, ["status"])
+    assert result.exit_code != 0
+    assert "/api/health" in (result.stdout + result.stderr)
+
+
+def test_status_invalid_health_json():
+    """Health payload is non-JSON garbage → parse-failure exit."""
+    from ccx.monitor import app
+    combined = "active\n@@@\nnot-json-at-all"
+    with patch("ccx.monitor.subprocess.run", return_value=_mock_run(combined, 0)):
+        result = CliRunner().invoke(app, ["status"])
+    assert result.exit_code != 0
+    assert "parse" in (result.stdout + result.stderr).lower() or \
+           "json" in (result.stdout + result.stderr).lower()
+
+
+def test_status_health_status_not_ok():
+    """Health returns status='degraded' → exit != 0, surfaces the actual value."""
+    from ccx.monitor import app
+    health = json.dumps({"status": "degraded"})
+    combined = f"active\n@@@\n{health}"
+    with patch("ccx.monitor.subprocess.run", return_value=_mock_run(combined, 0)):
+        result = CliRunner().invoke(app, ["status"])
+    assert result.exit_code != 0
+    assert "degraded" in (result.stdout + result.stderr)
+
+
+def test_status_ssh_failure_rc_255():
+    """ssh itself fails (rc=255) → 'ssh failed:' message."""
+    from ccx.monitor import app
+    with patch(
+        "ccx.monitor.subprocess.run",
+        return_value=_mock_run("", returncode=255, stderr="Connection refused"),
+    ):
+        result = CliRunner().invoke(app, ["status"])
+    assert result.exit_code != 0
+    assert "ssh failed" in (result.stdout + result.stderr)
+    assert "Connection refused" in (result.stdout + result.stderr)
