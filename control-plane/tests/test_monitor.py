@@ -95,3 +95,35 @@ def test_status_ssh_failure_rc_255():
     assert result.exit_code != 0
     assert "ssh failed" in (result.stdout + result.stderr)
     assert "Connection refused" in (result.stdout + result.stderr)
+
+
+def test_tunnel_default_execs_ssh_with_L_flag(monkeypatch):
+    """Default tunnel exec'd ssh argv contains -L 4820:127.0.0.1:4820 -N + the host."""
+    from ccx.monitor import app
+    captured: list[list[str]] = []
+    monkeypatch.setattr("ccx.monitor.os.execvp", lambda _, argv: captured.append(argv))
+    result = CliRunner().invoke(app, ["tunnel"])
+    assert result.exit_code == 0  # execvp is patched out → returns
+    assert captured, "execvp not called"
+    argv = captured[0]
+    assert argv[0] == "ssh"
+    assert "-L" in argv
+    assert "4820:127.0.0.1:4820" in argv
+    assert "-N" in argv
+    # default CFG → david@ccx.dsylla.sesio.io
+    assert any("@" in a and a.endswith("ccx.dsylla.sesio.io") for a in argv)
+
+
+def test_tunnel_print_outputs_command_no_exec(monkeypatch):
+    """--print emits the command and does NOT exec ssh."""
+    from ccx.monitor import app
+    called: list = []
+    monkeypatch.setattr(
+        "ccx.monitor.os.execvp",
+        lambda _, argv: called.append(argv),
+    )
+    result = CliRunner().invoke(app, ["tunnel", "--print"])
+    assert result.exit_code == 0
+    assert "ssh" in result.stdout
+    assert "-L 4820:127.0.0.1:4820" in result.stdout
+    assert called == [], "execvp should NOT be called with --print"
