@@ -15,12 +15,11 @@ from pathlib import Path
 from typing import Annotated
 
 import typer
-from rich.console import Console
 
 # boto3 is imported lazily in Config.session below. The ssh / --help / menu-
 # with-$CCX_STATE paths avoid the ~100 ms boto3 import entirely.
 
-console = Console()
+from ccx.ui import console, step, sub, ok, die  # re-exports for back-compat
 
 # --- config ---------------------------------------------------------------
 
@@ -91,22 +90,6 @@ CFG = Config()
 
 def log(msg: str) -> None:
     print(msg, flush=True)
-
-
-# Styled line helpers — rich handles TTY detection, colour, and markup.
-def _step(msg: str) -> None:
-    """Top-level step — `▶ msg`."""
-    console.print(f"[blue]▶[/] {msg}")
-
-
-def _sub(msg: str) -> None:
-    """Indented detail line — `  · msg` (used for state polls)."""
-    console.print(f"  [dim]·[/] {msg}")
-
-
-def _ok(msg: str) -> None:
-    """Success line — `✓ msg`."""
-    console.print(f"[green]✓[/] {msg}")
 
 
 def notify(
@@ -218,13 +201,6 @@ def _save_notify_id(nid: int) -> None:
         pass
 
 
-def die(msg: str) -> "typer.Exit":
-    """Log + notify + exit 1."""
-    print(f"error: {msg}", file=sys.stderr, flush=True)
-    notify("ccx error", msg, urgency="critical")
-    raise typer.Exit(code=1)
-
-
 def refresh_widget() -> None:
     """Nudge the qtile CcxStatusWidget so the bar updates immediately."""
     if not shutil.which("qtile"):
@@ -314,7 +290,7 @@ def update_dns() -> None:
         die(f"hosted zone {CFG.hosted_zone} not found")
     zone_id = zones[0]["Id"].removeprefix("/hostedzone/")
 
-    _step(f"pointing {CFG.hostname} → [bold]{ip}[/] (zone {zone_id})")
+    step(f"pointing {CFG.hostname} → [bold]{ip}[/] (zone {zone_id})")
     CFG.r53.change_resource_record_sets(
         HostedZoneId=zone_id,
         ChangeBatch={"Changes": [{
@@ -442,10 +418,10 @@ def start(
     iid = CFG.instance_id
     notifier = ProgressNotifier()
     start_state = describe_instance().get("State", {}).get("Name", "unknown")
-    _step(f"current state: [bold]{start_state}[/]")
+    step(f"current state: [bold]{start_state}[/]")
 
     if start_state != "running":
-        _step(f"starting [bold]{iid}[/]")
+        step(f"starting [bold]{iid}[/]")
         notifier.step(f"▶ starting {iid}")
         CFG.ec2.start_instances(InstanceIds=[iid])
         _wait_for_state("running")
@@ -462,17 +438,17 @@ def start(
     refresh_widget()
 
     itype = inst.get("InstanceType", "?")
-    _ok(f"ready — [bold]{itype}[/] [bold]{ip}[/]  {iid}")
+    ok(f"ready — [bold]{itype}[/] [bold]{ip}[/]  {iid}")
 
     if no_ssh:
         notifier.done(f"✓ ready — {itype} {ip}")
         return
 
     notifier.step(f"✓ ready — {itype} {ip}")
-    _step(f"waiting for sshd on {CFG.hostname}:22")
+    step(f"waiting for sshd on {CFG.hostname}:22")
     notifier.step("▶ waiting for sshd")
     _wait_for_ssh(CFG.hostname)
-    _step(f"ssh {CFG.ssh_user}@{CFG.hostname} (raw)")
+    step(f"ssh {CFG.ssh_user}@{CFG.hostname} (raw)")
     notifier.done("✓ ssh ready — connecting")
     _ssh_raw()
 
@@ -482,7 +458,7 @@ def stop() -> None:
     """Stop the instance, update widget."""
     iid = CFG.instance_id
     notifier = ProgressNotifier()
-    _step(f"stopping [bold]{iid}[/]")
+    step(f"stopping [bold]{iid}[/]")
     notifier.step(f"▶ stopping {iid}")
     CFG.ec2.stop_instances(InstanceIds=[iid])
     _wait_for_state("stopped")
@@ -490,7 +466,7 @@ def stop() -> None:
 
     inst = describe_instance()
     itype = inst.get("InstanceType", "?")
-    _ok(f"stopped — [bold]{itype}[/]  {iid}")
+    ok(f"stopped — [bold]{itype}[/]  {iid}")
     notifier.done(f"✓ stopped — {itype}")
 
 
@@ -522,7 +498,7 @@ def refresh_sg() -> None:
     inst = describe_instance()
     sg_id = inst["SecurityGroups"][0]["GroupId"]
     new_cidr = public_ip_32()
-    _step(f"current public ip: [bold]{new_cidr}[/]")
+    step(f"current public ip: [bold]{new_cidr}[/]")
 
     sg = CFG.ec2.describe_security_groups(GroupIds=[sg_id])["SecurityGroups"][0]
     existing: list[str] = []
@@ -532,13 +508,13 @@ def refresh_sg() -> None:
 
     for cidr in existing:
         if cidr != new_cidr:
-            _sub(f"revoking stale cidr {cidr}")
+            sub(f"revoking stale cidr {cidr}")
             CFG.ec2.revoke_security_group_ingress(
                 GroupId=sg_id, IpProtocol="tcp", FromPort=22, ToPort=22, CidrIp=cidr,
             )
 
     if new_cidr not in existing:
-        _sub(f"authorizing {new_cidr}")
+        sub(f"authorizing {new_cidr}")
         CFG.ec2.authorize_security_group_ingress(
             GroupId=sg_id, IpProtocol="tcp", FromPort=22, ToPort=22, CidrIp=new_cidr,
         )
