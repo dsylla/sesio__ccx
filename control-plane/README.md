@@ -27,6 +27,9 @@ ln -sf $(pwd)/bin/dm-ccx ~/.local/bin/dm-ccx
 | `ccxctl menu` | state-aware dmenu, re-execs the chosen subcommand |
 | `ccxctl session launch --agent AGENT --dir DIR` | create a tmux window running `claude` or `codex` |
 | `ccxctl session list` | list active agent sessions, uptime, and usage when available |
+| `ccxctl monitor status` | systemctl + /api/health roundtrip via SSH |
+| `ccxctl monitor tunnel [--print]` | forward localhost:4820 → ccx 127.0.0.1:4820 |
+| `ccxctl monitor logs [-f]` | tail journald for `agent-monitor.service` |
 
 ## DNS note
 
