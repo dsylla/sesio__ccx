@@ -16,6 +16,7 @@
     - codex_config
     - codex_mcp
     - claude_plugins
+    - agent_monitor
     - rtk
     - motd
     - verify
