@@ -40,8 +40,11 @@ def cmd_status() -> None:
         f"printf '{SENTINEL}\\n'; "
         f"curl -fsS http://127.0.0.1:{PORT}/api/health"
     )
+    # Pass `remote` as a single SSH argument so the remote shell parses the
+    # `;`-chained statements as a whole. With ["bash", "-c", remote] ssh would
+    # join the trailing argv with spaces and only `bash -c` the first word.
     r = subprocess.run(
-        _ssh_base() + ["bash", "-c", remote],
+        _ssh_base() + [remote],
         capture_output=True, text=True, check=False,
     )
     if r.returncode == 255:
