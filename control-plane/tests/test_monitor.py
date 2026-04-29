@@ -127,3 +127,34 @@ def test_tunnel_print_outputs_command_no_exec(monkeypatch):
     assert "ssh" in result.stdout
     assert "-L 4820:127.0.0.1:4820" in result.stdout
     assert called == [], "execvp should NOT be called with --print"
+
+
+def test_logs_no_follow_omits_t_flag_and_uses_no_pager(monkeypatch):
+    """logs (no -f) should NOT request a TTY and must use --no-pager."""
+    from ccx.monitor import app
+    captured: list[list[str]] = []
+    monkeypatch.setattr("ccx.monitor.os.execvp", lambda _, argv: captured.append(argv))
+    result = CliRunner().invoke(app, ["logs"])
+    assert result.exit_code == 0
+    assert captured, "execvp not called"
+    argv = captured[0]
+    assert "-t" not in argv
+    remote = " ".join(a for a in argv if not a.startswith("-") and "@" not in a and a != "ssh")
+    assert "journalctl" in remote
+    assert "-u agent-monitor" in remote
+    assert "--no-pager" in remote
+
+
+def test_logs_follow_adds_f_and_t_flags(monkeypatch):
+    """logs -f should request a TTY and pass -f to journalctl."""
+    from ccx.monitor import app
+    captured: list[list[str]] = []
+    monkeypatch.setattr("ccx.monitor.os.execvp", lambda _, argv: captured.append(argv))
+    result = CliRunner().invoke(app, ["logs", "--follow"])
+    assert result.exit_code == 0
+    argv = captured[0]
+    assert "-t" in argv
+    remote = " ".join(a for a in argv if not a.startswith("-") and "@" not in a and a != "ssh")
+    assert "journalctl" in remote
+    assert "-u agent-monitor" in remote
+    assert "-f" in remote
