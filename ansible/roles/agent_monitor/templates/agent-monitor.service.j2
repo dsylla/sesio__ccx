@@ -1,0 +1,22 @@
+# Managed by Ansible — agent_monitor role. Do not edit by hand.
+[Unit]
+Description=Claude Code Agent Monitor
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User={{ target_user }}
+Group={{ target_user }}
+WorkingDirectory={{ agent_monitor_install_dir }}
+Environment=PATH={{ target_home }}/.asdf/shims:/usr/local/bin:/usr/bin:/bin
+Environment=NODE_ENV=production
+Environment=DASHBOARD_PORT={{ agent_monitor_port }}
+ExecStart={{ target_home }}/.asdf/shims/npm start
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

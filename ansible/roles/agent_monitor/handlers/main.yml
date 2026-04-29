@@ -1,0 +1,11 @@
+---
+- name: daemon-reload
+  ansible.builtin.systemd:
+    daemon_reload: true
+
+- name: restart agent-monitor
+  ansible.builtin.systemd:
+    name: agent-monitor
+    state: restarted
+  listen:
+    - daemon-reload   # pick up unit changes before restart

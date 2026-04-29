@@ -1,0 +1,8 @@
+---
+# Pinned upstream version. Bump by editing this and re-running the playbook;
+# the git task will update the working tree, npm setup/build will re-run, and
+# the systemd handler restarts the service.
+agent_monitor_version: v1.1.0
+agent_monitor_repo: https://github.com/hoangsonww/Claude-Code-Agent-Monitor.git
+agent_monitor_install_dir: /opt/agent-monitor
+agent_monitor_port: 4820
