@@ -158,3 +158,25 @@ def test_logs_follow_adds_f_and_t_flags(monkeypatch):
     assert "journalctl" in remote
     assert "-u agent-monitor" in remote
     assert "-f" in remote
+
+
+def test_status_uses_configured_host_and_user(monkeypatch):
+    """SSH argv must reflect cli.CFG.ssh_user/hostname/ssh_key, not import-time defaults."""
+    from ccx.cli import Config
+    from ccx.monitor import app
+    fake_cfg = Config()
+    fake_cfg.hostname = "alt.example.test"
+    fake_cfg.ssh_user = "alice"
+    monkeypatch.setattr("ccx.cli.CFG", fake_cfg)
+
+    captured: list[list[str]] = []
+
+    def fake_run(argv, **kwargs):
+        captured.append(argv)
+        return _mock_run("active\n@@@\n" + json.dumps({"status": "ok"}), 0)
+
+    with patch("ccx.monitor.subprocess.run", side_effect=fake_run):
+        result = CliRunner().invoke(app, ["status"])
+    assert result.exit_code == 0
+    argv = captured[0]
+    assert any(a == "alice@alt.example.test" for a in argv)
