@@ -207,6 +207,12 @@ def _project_jsonl_files(cwd: str) -> list[Path]:
     return sorted(d.glob("*.jsonl"))
 
 
+# Public names — ccxd imports these; the underscore versions are retained
+# for back-compat with monitor_tui.py until Plan 2 migrates it.
+project_jsonl_files = _project_jsonl_files
+process_uptime_seconds = _process_uptime_seconds
+
+
 def _usage_for_agent(agent_name: str, cwd: str) -> dict:
     """Per-agent usage stats. Only Claude has a local jsonl source today."""
     if agent_name != "claude":

@@ -410,3 +410,11 @@ def test_session_list_table_includes_agent():
     assert "AGENT" in result.stdout
     assert "codex" in result.stdout
     assert "ccx" in result.stdout
+
+
+def test_promoted_helpers_are_importable():
+    """Public names exported for ccxd consumption."""
+    from ccx.sessions import process_uptime_seconds, project_jsonl_files
+    from ccx.sessions import _process_uptime_seconds, _project_jsonl_files
+    assert project_jsonl_files is _project_jsonl_files
+    assert process_uptime_seconds is _process_uptime_seconds
