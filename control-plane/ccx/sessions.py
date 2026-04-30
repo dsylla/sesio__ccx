@@ -32,11 +32,17 @@ def encode_project_dir(path: str) -> str:
 def parse_jsonl_tokens_today(jsonl_files: list[Path]) -> dict[str, int]:
     """Sum input/output tokens for today (UTC) across the given jsonl files.
 
+    Includes `cache_creation_input_tokens` and `cache_read_input_tokens` in the
+    `input` total — both are billed input from the model's POV and dominate
+    the actual context spend (cache reads in particular). Deduplicates by
+    `message.id` so a resumed or retried session doesn't double-count.
+
     Tolerates non-JSON lines, missing keys, and missing files.
     """
     today = _dt.datetime.now(_dt.timezone.utc).date()
     total_in = 0
     total_out = 0
+    seen_ids: set[str] = set()
     for f in jsonl_files:
         try:
             with open(f) as fh:
@@ -54,8 +60,16 @@ def parse_jsonl_tokens_today(jsonl_files: list[Path]) -> dict[str, int]:
                         continue
                     if entry_date != today:
                         continue
-                    usage = (entry.get("message") or {}).get("usage") or {}
+                    msg = entry.get("message") or {}
+                    msg_id = msg.get("id")
+                    if msg_id:
+                        if msg_id in seen_ids:
+                            continue
+                        seen_ids.add(msg_id)
+                    usage = msg.get("usage") or {}
                     total_in += int(usage.get("input_tokens") or 0)
+                    total_in += int(usage.get("cache_creation_input_tokens") or 0)
+                    total_in += int(usage.get("cache_read_input_tokens") or 0)
                     total_out += int(usage.get("output_tokens") or 0)
         except FileNotFoundError:
             continue

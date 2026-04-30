@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import datetime as dt
+import datetime as _dt
 import json
 from pathlib import Path
 
 import pytest
+
+from ccx import sessions
 
 
 def test_slug_basic():
@@ -56,6 +59,37 @@ def test_parse_jsonl_tokens_today_handles_missing_keys(tmp_path: Path):
 def test_parse_jsonl_tokens_today_no_files():
     from ccx.sessions import parse_jsonl_tokens_today
     assert parse_jsonl_tokens_today([]) == {"input": 0, "output": 0}
+
+
+def test_parse_jsonl_tokens_today_includes_cache_tokens(tmp_path):
+    f = tmp_path / "s.jsonl"
+    today_iso = _dt.datetime.now(_dt.timezone.utc).isoformat()
+    f.write_text(json.dumps({
+        "timestamp": today_iso,
+        "message": {"id": "msg_1", "usage": {
+            "input_tokens": 3, "output_tokens": 34,
+            "cache_creation_input_tokens": 19793,
+            "cache_read_input_tokens": 11752,
+        }},
+    }) + "\n")
+    out = sessions.parse_jsonl_tokens_today([f])
+    # cache reads/creates are inputs from the model's perspective and are
+    # billed; both must be counted.
+    assert out["input"] == 3 + 19793 + 11752
+    assert out["output"] == 34
+
+
+def test_parse_jsonl_tokens_today_dedupes_by_message_id(tmp_path):
+    f = tmp_path / "s.jsonl"
+    today_iso = _dt.datetime.now(_dt.timezone.utc).isoformat()
+    entry = json.dumps({
+        "timestamp": today_iso,
+        "message": {"id": "msg_dup", "usage": {"input_tokens": 100, "output_tokens": 50}},
+    })
+    f.write_text(entry + "\n" + entry + "\n")  # same message twice
+    out = sessions.parse_jsonl_tokens_today([f])
+    assert out["input"] == 100
+    assert out["output"] == 50
 
 
 from unittest.mock import patch, MagicMock
