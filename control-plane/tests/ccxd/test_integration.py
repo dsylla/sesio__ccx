@@ -32,7 +32,7 @@ class TestIntegration:
         env["CCXD_SKIP_DISCOVERY"] = "1"
 
         proc = subprocess.Popen(
-            [sys.executable, "-m", "ccx.ccxd"],
+            [sys.executable, "-m", "ccx.ccxd", "--memory-store"],
             env=env,
             cwd=str(Path(__file__).parents[2]),  # control-plane/
             stdout=subprocess.PIPE,
@@ -114,7 +114,7 @@ class TestIntegration:
         env["CCXD_SKIP_DISCOVERY"] = "1"
 
         proc = subprocess.Popen(
-            [sys.executable, "-m", "ccx.ccxd"],
+            [sys.executable, "-m", "ccx.ccxd", "--memory-store"],
             env=env,
             cwd=str(Path(__file__).parents[2]),
             stdout=subprocess.PIPE,
