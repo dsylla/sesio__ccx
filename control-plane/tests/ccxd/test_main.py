@@ -43,3 +43,20 @@ class TestMain:
         assert not shutdown_event.is_set()
         handler()
         assert shutdown_event.is_set()
+
+
+def test_main_default_picks_sqlite_store(monkeypatch, tmp_path):
+    """Without --memory-store, __main__ should pick SqliteStore."""
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+    from ccx.ccxd.__main__ import _select_store
+    store = _select_store(memory=False)
+    from ccx.ccxd.store import SqliteStore
+    assert isinstance(store, SqliteStore)
+    store.close()
+
+
+def test_main_memory_store_flag(monkeypatch):
+    from ccx.ccxd.__main__ import _select_store
+    store = _select_store(memory=True)
+    from ccx.ccxd.store import MemoryStore
+    assert isinstance(store, MemoryStore)

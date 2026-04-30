@@ -41,6 +41,14 @@ def sd_notify(state: str) -> None:
         pass
 
 
+def _select_store(memory: bool):
+    if memory:
+        return MemoryStore()
+    from ccx.ccxd.store import SqliteStore
+    data_home = Path(os.environ.get("XDG_DATA_HOME", os.path.expanduser("~/.local/share")))
+    return SqliteStore(data_home / "ccxd" / "state.db")
+
+
 def _create_shutdown_handler(shutdown_event: asyncio.Event):
     """Return a signal callback that sets the shutdown event."""
     def handler():
@@ -66,7 +74,7 @@ async def _subagent_heartbeat(state_mgr: StateManager) -> None:
 
 async def _run(args: argparse.Namespace) -> None:
     """Main async entry: discover, bind, serve."""
-    store = MemoryStore()
+    store = _select_store(args.memory_store)
     state_mgr = StateManager(store)
 
     # Discovery: seed state from running processes
@@ -169,6 +177,10 @@ def main() -> None:
     parser.add_argument(
         "--log-level", default=os.environ.get("CCXD_LOG_LEVEL", "info"),
         choices=["debug", "info", "warning", "error"],
+    )
+    parser.add_argument(
+        "--memory-store", action="store_true",
+        help="Use in-memory store (V1 behavior; non-persistent).",
     )
     args = parser.parse_args()
 
