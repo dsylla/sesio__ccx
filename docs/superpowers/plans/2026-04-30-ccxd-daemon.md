@@ -74,7 +74,7 @@ sesio__ccx/
 - Modify: `/home/david/Work/sesio/sesio__ccx/control-plane/pyproject.toml`
 - Modify: `/home/david/Work/sesio/sesio__ccx/control-plane/tests/test_sessions.py`
 
-- [ ] **Step 1: Add public aliases for promoted helpers**
+- [x] **Step 1: Add public aliases for promoted helpers**
 
 In `control-plane/ccx/sessions.py`, after the `_project_jsonl_files` function (around line 208), add:
 
@@ -85,7 +85,7 @@ project_jsonl_files = _project_jsonl_files
 process_uptime_seconds = _process_uptime_seconds
 ```
 
-- [ ] **Step 2: Add test for promoted public names**
+- [x] **Step 2: Add test for promoted public names**
 
 Append to `control-plane/tests/test_sessions.py`:
 
@@ -99,7 +99,7 @@ def test_promoted_helpers_are_importable():
     assert process_uptime_seconds is _process_uptime_seconds
 ```
 
-- [ ] **Step 3: Run test — expect PASS**
+- [x] **Step 3: Run test — expect PASS**
 
 ```bash
 cd /home/david/Work/sesio/sesio__ccx/control-plane && uv run pytest tests/test_sessions.py::test_promoted_helpers_are_importable -v
@@ -107,7 +107,7 @@ cd /home/david/Work/sesio/sesio__ccx/control-plane && uv run pytest tests/test_s
 
 Expected: 1 passed.
 
-- [ ] **Step 4: Add `inotify_simple` and `pytest-asyncio` to pyproject.toml**
+- [x] **Step 4: Add `inotify_simple` and `pytest-asyncio` to pyproject.toml**
 
 In `control-plane/pyproject.toml`, add `"inotify-simple>=1.3"` to `dependencies` and `"pytest-asyncio>=0.23"` to the `dev` dependency group:
 
@@ -128,7 +128,7 @@ dev = [
 ]
 ```
 
-- [ ] **Step 5: Sync deps**
+- [x] **Step 5: Sync deps**
 
 ```bash
 cd /home/david/Work/sesio/sesio__ccx/control-plane && /usr/bin/uv sync --group dev
@@ -136,7 +136,7 @@ cd /home/david/Work/sesio/sesio__ccx/control-plane && /usr/bin/uv sync --group d
 
 Expected: resolves and installs `inotify-simple` + `pytest-asyncio`.
 
-- [ ] **Step 6: Create ccxd package marker**
+- [x] **Step 6: Create ccxd package marker**
 
 Create `control-plane/ccx/ccxd/__init__.py`:
 
@@ -144,14 +144,14 @@ Create `control-plane/ccx/ccxd/__init__.py`:
 """ccxd — per-host Claude Code session daemon."""
 ```
 
-- [ ] **Step 7: Create test package marker**
+- [x] **Step 7: Create test package marker**
 
 Create `control-plane/tests/ccxd/__init__.py`:
 
 ```python
 ```
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 Use `/commit`. Message: `feat(ccxd): promote session helpers + add inotify_simple dep`
 
@@ -163,7 +163,7 @@ Use `/commit`. Message: `feat(ccxd): promote session helpers + add inotify_simpl
 - Create: `/home/david/Work/sesio/sesio__ccx/control-plane/ccx/ccxd/store.py`
 - Create: `/home/david/Work/sesio/sesio__ccx/control-plane/tests/ccxd/test_store.py`
 
-- [ ] **Step 1: Write failing test**
+- [x] **Step 1: Write failing test**
 
 Create `control-plane/tests/ccxd/test_store.py`:
 
@@ -245,7 +245,7 @@ class TestMemoryStore:
         assert store.tokens_for_period(0.0, 9999999999.0) == {}
 ```
 
-- [ ] **Step 2: Run — expect ImportError (module doesn't exist yet)**
+- [x] **Step 2: Run — expect ImportError (module doesn't exist yet)**
 
 ```bash
 cd /home/david/Work/sesio/sesio__ccx/control-plane && uv run pytest tests/ccxd/test_store.py -v
@@ -253,7 +253,7 @@ cd /home/david/Work/sesio/sesio__ccx/control-plane && uv run pytest tests/ccxd/t
 
 Expected: `ModuleNotFoundError: No module named 'ccx.ccxd.store'`
 
-- [ ] **Step 3: Implement store.py**
+- [x] **Step 3: Implement store.py**
 
 Create `control-plane/ccx/ccxd/store.py`:
 
@@ -314,7 +314,7 @@ class MemoryStore:
         return {}
 ```
 
-- [ ] **Step 4: Run tests — expect PASS**
+- [x] **Step 4: Run tests — expect PASS**
 
 ```bash
 cd /home/david/Work/sesio/sesio__ccx/control-plane && uv run pytest tests/ccxd/test_store.py -v
@@ -322,7 +322,7 @@ cd /home/david/Work/sesio/sesio__ccx/control-plane && uv run pytest tests/ccxd/t
 
 Expected: all tests pass (note: `state.py` doesn't exist yet so `_stub_session` will fail — we need to implement Task 3 first or use a forward-compatible approach). Actually, since `_stub_session` imports from `ccx.ccxd.state`, we must implement both Task 2 and Task 3 together. The test will work once `state.py` exists. For now, expect `ModuleNotFoundError` from `_stub_session`. We proceed to Task 3 before running.
 
-- [ ] **Step 5: Commit (after Task 3 makes tests pass)**
+- [x] **Step 5: Commit (after Task 3 makes tests pass)**
 
 Deferred to end of Task 3.
 
@@ -334,7 +334,7 @@ Deferred to end of Task 3.
 - Create: `/home/david/Work/sesio/sesio__ccx/control-plane/ccx/ccxd/state.py`
 - Create: `/home/david/Work/sesio/sesio__ccx/control-plane/tests/ccxd/test_state.py`
 
-- [ ] **Step 1: Write test**
+- [x] **Step 1: Write test**
 
 Create `control-plane/tests/ccxd/test_state.py`:
 
@@ -441,7 +441,7 @@ class TestStateManager:
         assert snap[0]["session_id"] == "a"
 ```
 
-- [ ] **Step 2: Implement state.py**
+- [x] **Step 2: Implement state.py**
 
 Create `control-plane/ccx/ccxd/state.py`:
 
@@ -522,7 +522,7 @@ class StateManager:
         return self._store.count_active()
 ```
 
-- [ ] **Step 3: Run store + state tests — expect PASS**
+- [x] **Step 3: Run store + state tests — expect PASS**
 
 ```bash
 cd /home/david/Work/sesio/sesio__ccx/control-plane && uv run pytest tests/ccxd/test_store.py tests/ccxd/test_state.py -v
@@ -530,7 +530,7 @@ cd /home/david/Work/sesio/sesio__ccx/control-plane && uv run pytest tests/ccxd/t
 
 Expected: all pass.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 Use `/commit`. Message: `feat(ccxd): add store.py (MemoryStore + protocol) and state.py (Session + StateManager)`
 
@@ -542,7 +542,7 @@ Use `/commit`. Message: `feat(ccxd): add store.py (MemoryStore + protocol) and s
 - Create: `/home/david/Work/sesio/sesio__ccx/control-plane/ccx/ccxd/jsonl.py`
 - Create: `/home/david/Work/sesio/sesio__ccx/control-plane/tests/ccxd/test_jsonl.py`
 
-- [ ] **Step 1: Write test**
+- [x] **Step 1: Write test**
 
 Create `control-plane/tests/ccxd/test_jsonl.py`:
 
@@ -685,7 +685,7 @@ class TestParseDeltas:
         assert deltas["last_subagent"]["description"] == "refactor module"
 ```
 
-- [ ] **Step 2: Implement jsonl.py**
+- [x] **Step 2: Implement jsonl.py**
 
 Create `control-plane/ccx/ccxd/jsonl.py`:
 
@@ -730,21 +730,18 @@ class JsonlTailer:
 
         entries: list[dict] = []
         consumed = 0
-        for line in raw.split(b"\n"):
-            # Each line ends with \n in the split — the last element after
-            # split is empty string if file ends with \n, or a partial line.
-            line_with_newline = len(line) + 1  # +1 for the \n separator
-            if consumed + len(line) >= len(raw) and not raw.endswith(b"\n"):
-                # This is a trailing incomplete line — don't consume it.
+        for line in raw.splitlines(keepends=True):
+            if not line.endswith(b"\n"):
+                # Trailing incomplete line — don't consume it.
                 break
-            consumed += line_with_newline
-            if not line.strip():
+            consumed += len(line)
+            stripped = line.strip()
+            if not stripped:
                 continue
             try:
-                entries.append(json.loads(line))
+                entries.append(json.loads(stripped))
             except json.JSONDecodeError:
                 continue  # skip corrupt lines, advance past them
-
         self.offset += consumed
         return entries
 
@@ -806,7 +803,7 @@ def parse_deltas(entry: dict) -> dict:
     return deltas
 ```
 
-- [ ] **Step 3: Run — expect PASS**
+- [x] **Step 3: Run — expect PASS**
 
 ```bash
 cd /home/david/Work/sesio/sesio__ccx/control-plane && uv run pytest tests/ccxd/test_jsonl.py -v
@@ -814,7 +811,7 @@ cd /home/david/Work/sesio/sesio__ccx/control-plane && uv run pytest tests/ccxd/t
 
 Expected: all pass.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 Use `/commit`. Message: `feat(ccxd): add jsonl.py incremental tailer with delta extraction`
 
@@ -826,7 +823,7 @@ Use `/commit`. Message: `feat(ccxd): add jsonl.py incremental tailer with delta 
 - Create: `/home/david/Work/sesio/sesio__ccx/control-plane/ccx/ccxd/discovery.py`
 - Create: `/home/david/Work/sesio/sesio__ccx/control-plane/tests/ccxd/test_discovery.py`
 
-- [ ] **Step 1: Write test**
+- [x] **Step 1: Write test**
 
 Create `control-plane/tests/ccxd/test_discovery.py`:
 
@@ -928,7 +925,7 @@ class TestDiscoverSessions:
         assert sessions == []
 ```
 
-- [ ] **Step 2: Implement discovery.py**
+- [x] **Step 2: Implement discovery.py**
 
 Create `control-plane/ccx/ccxd/discovery.py`:
 
@@ -1107,7 +1104,7 @@ def discover_sessions() -> list[Session]:
     return sessions
 ```
 
-- [ ] **Step 3: Run — expect PASS**
+- [x] **Step 3: Run — expect PASS**
 
 ```bash
 cd /home/david/Work/sesio/sesio__ccx/control-plane && uv run pytest tests/ccxd/test_discovery.py -v
@@ -1115,7 +1112,7 @@ cd /home/david/Work/sesio/sesio__ccx/control-plane && uv run pytest tests/ccxd/t
 
 Expected: all pass.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 Use `/commit`. Message: `feat(ccxd): add discovery.py for /proc walk and PID-session linkage`
 
@@ -1127,7 +1124,7 @@ Use `/commit`. Message: `feat(ccxd): add discovery.py for /proc walk and PID-ses
 - Create: `/home/david/Work/sesio/sesio__ccx/control-plane/ccx/ccxd/hooks.py`
 - Create: `/home/david/Work/sesio/sesio__ccx/control-plane/tests/ccxd/test_hooks.py`
 
-- [ ] **Step 1: Write test**
+- [x] **Step 1: Write test**
 
 Create `control-plane/tests/ccxd/test_hooks.py`:
 
@@ -1343,7 +1340,7 @@ class TestHandleHook:
         assert s.last_activity_at > old_time
 ```
 
-- [ ] **Step 2: Implement hooks.py**
+- [x] **Step 2: Implement hooks.py**
 
 Create `control-plane/ccx/ccxd/hooks.py`:
 
@@ -1509,7 +1506,7 @@ def handle_hook(mgr: "StateManager", raw: dict) -> list[dict]:
     return broadcast
 ```
 
-- [ ] **Step 3: Run — expect PASS**
+- [x] **Step 3: Run — expect PASS**
 
 ```bash
 cd /home/david/Work/sesio/sesio__ccx/control-plane && uv run pytest tests/ccxd/test_hooks.py -v
@@ -1517,7 +1514,7 @@ cd /home/david/Work/sesio/sesio__ccx/control-plane && uv run pytest tests/ccxd/t
 
 Expected: all pass.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 Use `/commit`. Message: `feat(ccxd): add hooks.py for hook payload parsing and state mutation`
 
@@ -1529,7 +1526,7 @@ Use `/commit`. Message: `feat(ccxd): add hooks.py for hook payload parsing and s
 - Create: `/home/david/Work/sesio/sesio__ccx/control-plane/ccx/ccxd/inotify.py`
 - Create: `/home/david/Work/sesio/sesio__ccx/control-plane/tests/ccxd/test_inotify.py`
 
-- [ ] **Step 1: Write test**
+- [x] **Step 1: Write test**
 
 Create `control-plane/tests/ccxd/test_inotify.py`:
 
@@ -1615,7 +1612,7 @@ class TestInotifyWatcher:
             w.close()
 ```
 
-- [ ] **Step 2: Implement inotify.py**
+- [x] **Step 2: Implement inotify.py**
 
 Create `control-plane/ccx/ccxd/inotify.py`:
 
@@ -1730,7 +1727,7 @@ class InotifyWatcher:
             pass
 ```
 
-- [ ] **Step 3: Run — expect PASS (on Linux)**
+- [x] **Step 3: Run — expect PASS (on Linux)**
 
 ```bash
 cd /home/david/Work/sesio/sesio__ccx/control-plane && uv run pytest tests/ccxd/test_inotify.py -v
@@ -1738,7 +1735,7 @@ cd /home/david/Work/sesio/sesio__ccx/control-plane && uv run pytest tests/ccxd/t
 
 Expected: all pass on Linux. May skip on non-Linux CI.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 Use `/commit`. Message: `feat(ccxd): add inotify.py asyncio wrapper for project dir watching`
 
