@@ -164,3 +164,47 @@ def test_load_rate_limits_reads_json(tmp_path, monkeypatch):
 
 def test_load_rate_limits_returns_none_on_missing_file(tmp_path):
     assert monitor_tui.load_rate_limits(tmp_path / "nope.json") is None
+
+
+import io
+from unittest.mock import MagicMock
+
+
+def test_collect_rows_combines_local_and_ccx():
+    fa = MagicMock(return_value=[_row(slug="L")])
+    fb = MagicMock(return_value=[_row(slug="C", source="ccx")])
+    rows, unreachable = monitor_tui.collect_rows([("local", fa), ("ccx", fb)])
+    assert {r.slug for r in rows} == {"L", "C"}
+    assert unreachable == []
+
+
+def test_collect_rows_filters_disabled_source():
+    fa = MagicMock(return_value=[_row(slug="L")])
+    fb = MagicMock(return_value=[_row(slug="C", source="ccx")])
+    rows, _ = monitor_tui.collect_rows(
+        [("local", fa), ("ccx", fb)], filter_source="local",
+    )
+    assert {r.slug for r in rows} == {"L"}
+
+
+def test_collect_rows_marks_failing_source_unreachable():
+    bad = MagicMock(side_effect=OSError("boom"))
+    rows, unreachable = monitor_tui.collect_rows([("ccx", bad)])
+    assert rows == []
+    assert unreachable == ["ccx"]
+
+
+def test_run_tui_non_tty_renders_one_frame_and_exits_zero(monkeypatch, capsys):
+    """The non-interactive path must be deterministic and CI-safe."""
+    monkeypatch.setattr("sys.stdin", io.StringIO())  # not a tty
+    fakes = [("local", MagicMock(return_value=[_row(slug="X")]))]
+    rc = monitor_tui.run_tui(fakes, interval=99.0)
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "X" in out
+
+
+def test_cycle_filter_progresses_both_local_ccx_both():
+    assert monitor_tui.cycle_filter(None) == "local"
+    assert monitor_tui.cycle_filter("local") == "ccx"
+    assert monitor_tui.cycle_filter("ccx") is None

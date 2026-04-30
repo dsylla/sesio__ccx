@@ -201,3 +201,136 @@ def build_panel(
         title_align="left",
         border_style="cyan",
     )
+
+
+import atexit
+import logging
+import os
+import select
+import signal
+import sys
+import termios
+import tty
+from typing import Callable
+
+from rich.live import Live
+
+log = logging.getLogger(__name__)
+
+
+# Each source = (name, callable returning list[SessionRow]).
+SourceTuple = tuple[str, Callable[[], list[SessionRow]]]
+
+
+def collect_rows(
+    sources: list[SourceTuple],
+    *,
+    filter_source: str | None = None,
+) -> tuple[list[SessionRow], list[str]]:
+    """Fetch from all sources; return (rows, unreachable_source_names).
+
+    `filter_source` restricts both the rows AND the unreachable list, so the
+    user sees only what they asked for.
+    """
+    rows: list[SessionRow] = []
+    unreachable: list[str] = []
+    for name, fetch in sources:
+        if filter_source is not None and name != filter_source:
+            continue
+        try:
+            rows.extend(fetch())
+        except Exception:
+            log.warning("source %s failed", name, exc_info=True)
+            unreachable.append(name)
+    return rows, unreachable
+
+
+def cycle_filter(current: str | None) -> str | None:
+    """Cycle: None (both) → 'local' → 'ccx' → None."""
+    return {None: "local", "local": "ccx", "ccx": None}[current]
+
+
+def _key_pressed(timeout: float) -> str | None:
+    if not sys.stdin.isatty():
+        return None
+    r, _, _ = select.select([sys.stdin], [], [], timeout)
+    return sys.stdin.read(1) if r else None
+
+
+def _install_termios_guard(fd: int, old_settings) -> None:
+    """Belt-and-suspenders termios restore: atexit + SIGTERM/SIGHUP."""
+    def restore(_signum=None, _frame=None):
+        try:
+            termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+            # exit alt-screen + show cursor — Live should have done this in
+            # __exit__, but if we're here from a signal we need to be sure.
+            sys.stdout.write("\x1b[?1049l\x1b[?25h")
+            sys.stdout.flush()
+        except Exception:
+            pass
+        if _signum is not None:
+            signal.signal(_signum, signal.SIG_DFL)
+            os.kill(os.getpid(), _signum)
+
+    atexit.register(restore)
+    for sig in (signal.SIGTERM, signal.SIGHUP):
+        try:
+            signal.signal(sig, restore)
+        except (ValueError, OSError):
+            pass
+
+
+def run_tui(
+    sources: list[SourceTuple],
+    *,
+    interval: float = 5.0,
+    initial_filter: str | None = None,
+    debug: bool = False,
+) -> int:
+    """Render loop. Returns process exit code."""
+    if debug:
+        logging.basicConfig(level=logging.DEBUG)
+
+    filter_source = initial_filter
+
+    if not sys.stdin.isatty():
+        rows, unreachable = collect_rows(sources, filter_source=filter_source)
+        rl = load_rate_limits()
+        # Plain print — the non-tty path is for redirects / harnesses, no Live.
+        from ccx.ui import console
+        console.print(build_panel(rows, unreachable_sources=unreachable, rate_limits=rl))
+        return 0
+
+    fd = sys.stdin.fileno()
+    old_settings = termios.tcgetattr(fd)
+    _install_termios_guard(fd, old_settings)
+    try:
+        tty.setcbreak(fd)
+        from ccx.ui import console
+        with Live(build_panel([]), console=console, refresh_per_second=4, screen=True) as live:
+            while True:
+                rows, unreachable = collect_rows(sources, filter_source=filter_source)
+                rl = load_rate_limits()
+                live.update(build_panel(rows, unreachable_sources=unreachable, rate_limits=rl))
+                key = _key_pressed(interval)
+                if key in ("q", "\x03", "\x04"):  # q, Ctrl-C, Ctrl-D
+                    return 0
+                if key == "r":
+                    continue
+                if key == "f":
+                    filter_source = cycle_filter(filter_source)
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+
+
+def make_default_sources() -> list[SourceTuple]:
+    """Build the standard (local + ccx) source list using ccxctl's CFG."""
+    from ccx.cli import CFG
+    return [
+        ("local", fetch_local),
+        ("ccx", lambda: fetch_ccx(
+            ssh_user=CFG.ssh_user,
+            hostname=CFG.hostname,
+            ssh_key=str(CFG.ssh_key),
+        )),
+    ]
