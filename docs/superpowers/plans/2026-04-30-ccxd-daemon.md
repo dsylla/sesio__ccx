@@ -1747,7 +1747,7 @@ Use `/commit`. Message: `feat(ccxd): add inotify.py asyncio wrapper for project 
 - Create: `/home/david/Work/sesio/sesio__ccx/control-plane/ccx/ccxd/api.py`
 - Create: `/home/david/Work/sesio/sesio__ccx/control-plane/tests/ccxd/test_api.py`
 
-- [ ] **Step 1: Write test**
+- [x] **Step 1: Write test**
 
 Create `control-plane/tests/ccxd/test_api.py`:
 
@@ -1851,7 +1851,7 @@ class TestHandleRpc:
             assert "result" in resp, f"Failed for glob: {glob}"
 ```
 
-- [ ] **Step 2: Implement api.py**
+- [x] **Step 2: Implement api.py**
 
 Create `control-plane/ccx/ccxd/api.py`:
 
@@ -1955,7 +1955,7 @@ def matches_subscription(event_name: str, event_globs: list[str]) -> bool:
     return False
 ```
 
-- [ ] **Step 3: Run — expect PASS**
+- [x] **Step 3: Run — expect PASS**
 
 ```bash
 cd /home/david/Work/sesio/sesio__ccx/control-plane && uv run pytest tests/ccxd/test_api.py -v
@@ -1963,7 +1963,7 @@ cd /home/david/Work/sesio/sesio__ccx/control-plane && uv run pytest tests/ccxd/t
 
 Expected: all pass.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 Use `/commit`. Message: `feat(ccxd): add api.py RPC method handlers (query, subscribe, unsubscribe)`
 
@@ -1975,7 +1975,7 @@ Use `/commit`. Message: `feat(ccxd): add api.py RPC method handlers (query, subs
 - Create: `/home/david/Work/sesio/sesio__ccx/control-plane/ccx/ccxd/server.py`
 - Create: `/home/david/Work/sesio/sesio__ccx/control-plane/tests/ccxd/test_server.py`
 
-- [ ] **Step 1: Write test**
+- [x] **Step 1: Write test**
 
 Create `control-plane/tests/ccxd/test_server.py`:
 
@@ -2139,7 +2139,7 @@ class TestDaemonServer:
             sock.close()
 ```
 
-- [ ] **Step 2: Implement server.py**
+- [x] **Step 2: Implement server.py**
 
 Create `control-plane/ccx/ccxd/server.py`:
 
@@ -2351,7 +2351,7 @@ class _HookProtocol(asyncio.DatagramProtocol):
         log.warning("hook socket error: %s", exc)
 ```
 
-- [ ] **Step 3: Run — expect PASS**
+- [x] **Step 3: Run — expect PASS**
 
 ```bash
 cd /home/david/Work/sesio/sesio__ccx/control-plane && uv run pytest tests/ccxd/test_server.py -v
@@ -2359,7 +2359,7 @@ cd /home/david/Work/sesio/sesio__ccx/control-plane && uv run pytest tests/ccxd/t
 
 Expected: all pass.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 Use `/commit`. Message: `feat(ccxd): add server.py with asyncio sockets and subscriber broadcast`
 
