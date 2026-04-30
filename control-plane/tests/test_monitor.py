@@ -273,3 +273,34 @@ def test_tunnel_pid_clears_stale_file(monkeypatch, tmp_path):
 
     assert mon._tunnel_pid() is None
     assert not pid_file.exists()
+
+
+def test_monitor_tui_listed_in_help():
+    from typer.testing import CliRunner
+    from ccx.cli import app
+    result = CliRunner().invoke(app, ["monitor", "--help"])
+    assert result.exit_code == 0
+    assert "tui" in result.stdout.lower()
+
+
+def test_monitor_tui_invokes_run_tui_with_filter_and_debug(monkeypatch):
+    called: dict = {}
+    def fake_run(sources, **kw):
+        called["sources"] = sources
+        called["kw"] = kw
+        return 0
+    monkeypatch.setattr("ccx.monitor_tui.run_tui", fake_run)
+
+    from typer.testing import CliRunner
+    from ccx.cli import app
+    result = CliRunner().invoke(app, ["monitor", "tui", "--source", "local", "--debug"])
+    assert result.exit_code == 0
+    assert called["kw"]["initial_filter"] == "local"
+    assert called["kw"]["debug"] is True
+
+
+def test_monitor_tui_rejects_invalid_source():
+    from typer.testing import CliRunner
+    from ccx.cli import app
+    result = CliRunner().invoke(app, ["monitor", "tui", "--source", "nope"])
+    assert result.exit_code != 0

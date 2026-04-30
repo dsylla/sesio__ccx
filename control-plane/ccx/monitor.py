@@ -225,3 +225,28 @@ def cmd_logs(
         remote = f"journalctl -u {UNIT} --no-pager"
     argv = base + [f"{cli.CFG.ssh_user}@{cli.CFG.hostname}", remote]
     os.execvp("ssh", argv)
+
+
+@app.command("tui")
+def cmd_tui(
+    interval: float = typer.Option(5.0, "--interval", "-i", help="Poll interval seconds."),
+    source: str = typer.Option(
+        "both",
+        "--source", "-s",
+        help="Which source to show: local, ccx, or both.",
+    ),
+    debug: bool = typer.Option(
+        False, "--debug", help="Surface fetcher exceptions to stderr (logging.DEBUG).",
+    ),
+):
+    """Live TUI dashboard of agent sessions on local + ccx (q to quit, f to cycle filter)."""
+    if source not in {"both", "local", "ccx"}:
+        raise typer.BadParameter("--source must be one of: both, local, ccx")
+    from ccx import monitor_tui
+    rc = monitor_tui.run_tui(
+        monitor_tui.make_default_sources(),
+        interval=interval,
+        initial_filter=None if source == "both" else source,
+        debug=debug,
+    )
+    raise typer.Exit(code=rc)
