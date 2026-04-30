@@ -137,3 +137,34 @@ def test_sqlite_store_remove_writes_to_history(db_path: Path) -> None:
     conn.close()
     assert row == ("s1", 42, 21)
     s.close()
+
+
+def test_closed_today_returns_recently_ended(db_path: Path) -> None:
+    s = SqliteStore(db_path)
+    s.upsert(_stub_session(session_id="old", cwd="/x"))
+    s.upsert(_stub_session(session_id="new", cwd="/y", tokens_in=100, tokens_out=50))
+    # Force "old" into history with an old ended_at
+    s.remove("old")
+    s._conn.execute(
+        "UPDATE sessions_history SET ended_at = ? WHERE session_id='old'",
+        (time.time() - 86400 * 2,),  # 2 days ago
+    )
+    s.remove("new")  # ended_at = now
+    midnight = time.time() - 86400  # 1 day ago — boundary
+    closed = s.closed_today(midnight)
+    sids = {x.session_id for x in closed}
+    assert "new" in sids
+    assert "old" not in sids
+    s.close()
+
+
+def test_tokens_for_period_aggregates(db_path: Path) -> None:
+    s = SqliteStore(db_path)
+    s.upsert(_stub_session(session_id="a", cwd="/x", tokens_in=10, tokens_out=2))
+    s.upsert(_stub_session(session_id="b", cwd="/y", tokens_in=20, tokens_out=4))
+    s.remove("a")
+    s.remove("b")
+    now = time.time()
+    out = s.tokens_for_period(now - 60, now + 60)
+    assert out == {"input": 30, "output": 6, "sessions": 2}
+    s.close()

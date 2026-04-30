@@ -181,12 +181,33 @@ class SqliteStore:
         return len(self._cache)
 
     def closed_today(self, since_epoch: float) -> list["Session"]:
-        # Implemented in Task 3.
-        return []
+        from ccx.ccxd.state import Session
+        rows = self._conn.execute(
+            "SELECT session_id, cwd, model, summary, tokens_in, tokens_out, "
+            "started_at, ended_at FROM sessions_history "
+            "WHERE ended_at >= ? ORDER BY ended_at DESC",
+            (since_epoch,),
+        ).fetchall()
+        out: list[Session] = []
+        for r in rows:
+            out.append(Session(
+                session_id=r["session_id"], cwd=r["cwd"], pid=None,
+                model=r["model"], summary=r["summary"],
+                tokens_in=r["tokens_in"], tokens_out=r["tokens_out"],
+                last_subagent=None, subagent_in_flight=None, attention=None,
+                last_activity_at=r["ended_at"], started_at=r["started_at"],
+            ))
+        return out
 
     def tokens_for_period(self, start: float, end: float) -> dict:
-        # Implemented in Task 3.
-        return {}
+        row = self._conn.execute(
+            "SELECT COALESCE(SUM(tokens_in), 0) AS i, "
+            "COALESCE(SUM(tokens_out), 0) AS o, "
+            "COUNT(*) AS n FROM sessions_history "
+            "WHERE ended_at >= ? AND ended_at < ?",
+            (start, end),
+        ).fetchone()
+        return {"input": row["i"], "output": row["o"], "sessions": row["n"]}
 
     def close(self) -> None:
         self._conn.close()
