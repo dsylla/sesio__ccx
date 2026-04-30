@@ -86,3 +86,44 @@ def test_uninstall_hooks_removes_ccxd_entries(settings: Path):
 def test_install_hooks_refuses_inside_live_session(settings: Path):
     code, _, _ = _run("install-hooks", env={"CLAUDECODE": "1"})
     assert code == 2  # mirror claude-bedrock guard
+
+
+@pytest.fixture
+def systemd_home(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / ".config"))
+    return tmp_path
+
+
+def test_install_service_writes_unit(systemd_home):
+    with patch("ccx.ccxd_cli._systemctl") as sysctl:
+        sysctl.return_value = 0
+        code, out, _ = _run("install-service")
+    assert code == 0, out
+    unit = systemd_home / ".config" / "systemd" / "user" / "ccxd.service"
+    assert unit.exists()
+    body = unit.read_text()
+    assert "__PYTHON__" not in body
+    assert "ExecStart=" in body
+    assert "ccx.ccxd" in body
+    # daemon-reload + enable --now were called
+    called = [c.args[0] for c in sysctl.call_args_list]
+    assert ["daemon-reload"] in called
+    assert any(c[:2] == ["enable", "--now"] for c in called)
+
+
+def test_status_shells_to_systemctl(systemd_home):
+    with patch("ccx.ccxd_cli._systemctl") as sysctl:
+        sysctl.return_value = 0
+        code, _, _ = _run("status")
+    assert code == 0
+    sysctl.assert_called_once_with(["status", "ccxd"])
+
+
+def test_logs_passes_extra_args(systemd_home):
+    with patch("ccx.ccxd_cli._journalctl") as jctl:
+        jctl.return_value = 0
+        _run("logs", "--", "-f")
+    jctl.assert_called_once()
+    args = jctl.call_args.args[0]
+    assert "--user-unit" in args and "ccxd" in args

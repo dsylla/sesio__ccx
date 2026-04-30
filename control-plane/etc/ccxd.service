@@ -1,0 +1,17 @@
+[Unit]
+Description=ccxd — Claude Code session daemon
+After=default.target
+ConditionPathExists=%h/.claude/projects
+
+[Service]
+Type=notify
+ExecStart=__PYTHON__ -m ccx.ccxd
+Restart=on-failure
+RestartSec=2
+StandardOutput=journal
+StandardError=journal
+# State lives under $XDG_DATA_HOME/ccxd/state.db; the daemon creates the dir.
+# Sockets live under $XDG_RUNTIME_DIR — systemd sets this on user units.
+
+[Install]
+WantedBy=default.target

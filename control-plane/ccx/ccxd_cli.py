@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
+import subprocess
 import sys
 from pathlib import Path
 
@@ -96,3 +98,61 @@ def uninstall_hooks() -> None:
     data["hooks"] = hooks
     _save(data)
     typer.echo("uninstalled ccxd hooks")
+
+
+_UNIT_NAME = "ccxd"
+
+
+def _unit_path() -> Path:
+    config_home = Path(os.environ.get("XDG_CONFIG_HOME",
+                                     os.path.expanduser("~/.config")))
+    return config_home / "systemd" / "user" / f"{_UNIT_NAME}.service"
+
+
+def _unit_template() -> str:
+    return (Path(__file__).parents[1] / "etc" / "ccxd.service").read_text()
+
+
+def _systemctl(argv: list[str]) -> int:
+    return subprocess.call(["systemctl", "--user", *argv])
+
+
+def _journalctl(argv: list[str]) -> int:
+    return subprocess.call(["journalctl", *argv])
+
+
+@app.command("install-service")
+def install_service() -> None:
+    """Materialize ccxd.service in ~/.config/systemd/user/, then enable --now."""
+    body = _unit_template().replace("__PYTHON__", shlex.quote(sys.executable))
+    target = _unit_path()
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(body)
+    rc = _systemctl(["daemon-reload"])
+    if rc != 0:
+        raise typer.Exit(rc)
+    rc = _systemctl(["enable", "--now", _UNIT_NAME])
+    if rc != 0:
+        raise typer.Exit(rc)
+    typer.echo(f"installed and started {_UNIT_NAME}.service")
+
+
+@app.command("status")
+def status() -> None:
+    raise typer.Exit(_systemctl(["status", _UNIT_NAME]))
+
+
+@app.command("restart")
+def restart() -> None:
+    raise typer.Exit(_systemctl(["restart", _UNIT_NAME]))
+
+
+@app.command("stop")
+def stop() -> None:
+    raise typer.Exit(_systemctl(["stop", _UNIT_NAME]))
+
+
+@app.command("logs")
+def logs(extra: list[str] = typer.Argument(None)) -> None:
+    """Tail ccxd journal. Pass `-- -f` for follow mode."""
+    raise typer.Exit(_journalctl(["--user-unit", _UNIT_NAME, *(extra or [])]))
