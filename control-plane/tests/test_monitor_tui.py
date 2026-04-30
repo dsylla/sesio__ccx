@@ -91,3 +91,76 @@ def test_fetch_ccx_returns_empty_on_garbage_stdout(monkeypatch):
         return subprocess.CompletedProcess(args=a, returncode=0, stdout="not json", stderr="")
     monkeypatch.setattr(subprocess, "run", fake_run)
     assert monitor_tui.fetch_ccx(ssh_user="david", hostname="ccx", ssh_key="/tmp/k") == []
+
+
+from rich.console import Console
+
+
+def _row(**over):
+    base = dict(
+        source="local", agent="claude", slug="demo", cwd="/home/david/demo",
+        pid=1234, uptime_seconds=600.0, tokens_in=1500, tokens_out=750,
+    )
+    base.update(over)
+    return monitor_tui.SessionRow(**base)
+
+
+def _render(panel) -> str:
+    console = Console(record=True, width=120)
+    console.print(panel)
+    return console.export_text()
+
+
+def test_build_panel_includes_source_column_and_help_caption():
+    out = _render(monitor_tui.build_panel([_row()]))
+    assert "SOURCE" in out.upper()
+    assert "local" in out
+    assert "demo" in out
+    # Help caption mentions all three supported keys
+    assert "q" in out and "r" in out and "f" in out
+
+
+def test_build_panel_renders_humanized_tokens():
+    out = _render(monitor_tui.build_panel([_row(tokens_in=1500, tokens_out=750)]))
+    assert "1.5k" in out
+    assert "750" in out  # too small to humanize
+
+
+def test_build_panel_handles_unreachable_source():
+    out = _render(monitor_tui.build_panel([], unreachable_sources=["ccx"]))
+    assert "ccx" in out and "unreachable" in out.lower()
+
+
+def test_build_panel_empty_local_and_ccx_no_unreachable():
+    out = _render(monitor_tui.build_panel([]))
+    assert "no sessions" in out.lower()
+
+
+def test_build_panel_includes_rate_limits_when_provided():
+    out = _render(monitor_tui.build_panel(
+        [_row()],
+        rate_limits={"five_hour": {"used_percentage": 41.0, "resets_at": 9999999999},
+                     "seven_day": {"used_percentage": 47.0, "resets_at": 9999999999}},
+    ))
+    assert "5h" in out and "41%" in out
+    assert "7d" in out and "47%" in out
+
+
+def test_build_panel_omits_rate_limits_when_none():
+    out = _render(monitor_tui.build_panel([_row()], rate_limits=None))
+    assert "5h" not in out
+    assert "7d" not in out
+
+
+def test_load_rate_limits_reads_json(tmp_path, monkeypatch):
+    p = tmp_path / "state.json"
+    p.write_text(json.dumps({"rate_limits": {
+        "five_hour": {"used_percentage": 30, "resets_at": 1},
+        "seven_day": {"used_percentage": 40, "resets_at": 2},
+    }}))
+    out = monitor_tui.load_rate_limits(p)
+    assert out["five_hour"]["used_percentage"] == 30
+
+
+def test_load_rate_limits_returns_none_on_missing_file(tmp_path):
+    assert monitor_tui.load_rate_limits(tmp_path / "nope.json") is None

@@ -93,3 +93,111 @@ def fetch_ccx(
     if not isinstance(data, list):
         return []
     return [SessionRow.from_dict(d, source="ccx") for d in data if isinstance(d, dict)]
+
+
+from pathlib import Path
+from rich.console import Group
+from rich.panel import Panel
+from rich.table import Table
+from rich.text import Text
+
+
+def _fmt_tokens(n: int) -> str:
+    if n >= 1_000_000:
+        return f"{n / 1_000_000:.1f}M"
+    if n >= 1_000:
+        return f"{n / 1_000:.1f}k"
+    return str(n)
+
+
+def _fmt_uptime(secs: float | None) -> str:
+    if secs is None:
+        return "-"
+    if secs < 60:
+        return f"{int(secs)}s"
+    if secs < 3600:
+        return f"{int(secs // 60)}m"
+    return f"{int(secs // 3600)}h{int((secs % 3600) // 60)}m"
+
+
+_DEFAULT_RATE_LIMITS_FILE = Path.home() / ".cache" / "claude_status" / "state.json"
+
+
+def load_rate_limits(path: Path | None = None) -> dict | None:
+    """Read 5h/7d Anthropic rate-limit windows from state.json. None on miss."""
+    p = path or _DEFAULT_RATE_LIMITS_FILE
+    try:
+        data = json.loads(p.read_text())
+    except (OSError, json.JSONDecodeError):
+        return None
+    return data.get("rate_limits") or None
+
+
+def _rate_limit_line(rl: dict) -> Text:
+    parts: list[str] = []
+    fh = rl.get("five_hour") or {}
+    sd = rl.get("seven_day") or {}
+    if "used_percentage" in fh:
+        parts.append(f"5h {fh['used_percentage']:.0f}%")
+    if "used_percentage" in sd:
+        parts.append(f"7d {sd['used_percentage']:.0f}%")
+    return Text(" · ".join(parts), style="dim")
+
+
+def build_panel(
+    rows: list[SessionRow],
+    *,
+    unreachable_sources: list[str] | None = None,
+    rate_limits: dict | None = None,
+) -> Panel:
+    """Compose the full TUI frame: table + (optional) rate-limit footer.
+
+    Tokens are aggregated per-cwd, not per-pid — see help caption.
+    """
+    table = Table(
+        show_header=True,
+        header_style="bold cyan",
+        expand=True,
+        caption="(tokens are per-cwd, not per-pid)",
+        caption_style="dim",
+    )
+    table.add_column("SOURCE", style="dim", width=8)
+    table.add_column("AGENT", width=8)
+    table.add_column("SLUG", overflow="fold")
+    table.add_column("PID", justify="right", width=8)
+    table.add_column("UPTIME", justify="right", width=8)
+    table.add_column("IN", justify="right", width=8)
+    table.add_column("OUT", justify="right", width=8)
+    table.add_column("CWD", overflow="fold")
+
+    if not rows and not (unreachable_sources or []):
+        table.caption = "no sessions"
+
+    for r in rows:
+        src_style = "green" if r.source == "local" else "magenta"
+        table.add_row(
+            Text(r.source, style=src_style),
+            r.agent,
+            r.slug,
+            str(r.pid) if r.pid else "-",
+            _fmt_uptime(r.uptime_seconds),
+            _fmt_tokens(r.tokens_in),
+            _fmt_tokens(r.tokens_out),
+            r.cwd,
+        )
+
+    for src in unreachable_sources or []:
+        table.add_row(
+            Text(src, style="red"),
+            "-", "(unreachable)", "-", "-", "-", "-", "-",
+        )
+
+    body = [table]
+    if rate_limits:
+        body.append(_rate_limit_line(rate_limits))
+    return Panel(
+        Group(*body),
+        title="agent monitor — q quit · r refresh · f cycle filter",
+        title_align="left",
+        border_style="cyan",
+    )
