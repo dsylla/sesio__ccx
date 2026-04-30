@@ -319,6 +319,9 @@ app.add_typer(_sessions_app, name="session", help="Manage claude sessions (tmux)
 from ccx.monitor import app as _monitor_app
 app.add_typer(_monitor_app, name="monitor", help="Manage the Claude Code agent monitor service.")
 
+from ccx.ccxd_cli import app as _ccxd_app
+app.add_typer(_ccxd_app, name="ccxd", help="Manage the ccxd Claude Code session daemon.")
+
 
 @app.command()
 def motd() -> None:
