@@ -53,3 +53,43 @@ from ccx.sessions import collect_sessions  # noqa: E402  (deliberate late import
 def fetch_local() -> list[SessionRow]:
     """Sessions on the local host. Reuses ccx.sessions.collect_sessions()."""
     return [SessionRow.from_dict(r, source="local") for r in collect_sessions()]
+
+
+def fetch_ccx(
+    *, ssh_user: str, hostname: str, ssh_key: str, timeout: float = 5.0
+) -> list[SessionRow]:
+    """Sessions on the ccx host, via `ssh ... ccxctl session list --json`.
+
+    Failure modes (ssh down, unreachable, timeout, non-zero exit, garbage
+    stdout) all return [] — the loop keeps drawing local rows and renders
+    ccx as `(unreachable)` via the render layer's `unreachable_sources`
+    argument.
+    """
+    cmd = [
+        "ssh",
+        "-i", ssh_key,
+        "-o", "ConnectTimeout=3",
+        "-o", "BatchMode=yes",
+        "-o", "ControlMaster=auto",
+        "-o", "ControlPath=~/.ssh/cm-%r@%h:%p",
+        "-o", "ControlPersist=120",
+        "-o", "ServerAliveInterval=30",
+        "-o", "ServerAliveCountMax=2",
+        f"{ssh_user}@{hostname}",
+        "ccxctl", "session", "list", "--json",
+    ]
+    try:
+        r = subprocess.run(
+            cmd, capture_output=True, text=True, check=False, timeout=timeout,
+        )
+    except subprocess.TimeoutExpired:
+        return []
+    if r.returncode != 0:
+        return []
+    try:
+        data = json.loads(r.stdout)
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(data, list):
+        return []
+    return [SessionRow.from_dict(d, source="ccx") for d in data if isinstance(d, dict)]
