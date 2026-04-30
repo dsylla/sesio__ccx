@@ -73,3 +73,67 @@ class TestMemoryStore:
     def test_tokens_for_period_returns_empty(self):
         store = MemoryStore()
         assert store.tokens_for_period(0.0, 9999999999.0) == {}
+
+
+import sqlite3
+import time
+from pathlib import Path
+
+import pytest
+
+from ccx.ccxd.store import SqliteStore
+
+
+@pytest.fixture
+def db_path(tmp_path: Path) -> Path:
+    return tmp_path / "state.db"
+
+
+def test_sqlite_store_creates_schema_on_open(db_path: Path) -> None:
+    s = SqliteStore(db_path)
+    s.close()
+    conn = sqlite3.connect(db_path)
+    rows = conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
+    ).fetchall()
+    conn.close()
+    names = {r[0] for r in rows}
+    assert "sessions" in names
+    assert "sessions_history" in names
+    assert "schema_version" in names
+
+
+def test_sqlite_store_upsert_get_remove(db_path: Path) -> None:
+    s = SqliteStore(db_path)
+    sess = _stub_session(session_id="s1", cwd="/x", tokens_in=10, tokens_out=5)
+    s.upsert(sess)
+    assert s.get("s1").session_id == "s1"
+    assert s.count_active() == 1
+    s.remove("s1")
+    assert s.get("s1") is None
+    assert s.count_active() == 0
+    s.close()
+
+
+def test_sqlite_store_persists_across_reopens(db_path: Path) -> None:
+    s1 = SqliteStore(db_path)
+    s1.upsert(_stub_session(session_id="s1", cwd="/x"))
+    s1.close()
+
+    s2 = SqliteStore(db_path)
+    got = s2.get("s1")
+    assert got is not None and got.session_id == "s1"
+    s2.close()
+
+
+def test_sqlite_store_remove_writes_to_history(db_path: Path) -> None:
+    s = SqliteStore(db_path)
+    s.upsert(_stub_session(session_id="s1", cwd="/x", tokens_in=42, tokens_out=21))
+    s.remove("s1")
+    conn = sqlite3.connect(db_path)
+    row = conn.execute(
+        "SELECT session_id, tokens_in, tokens_out FROM sessions_history WHERE session_id='s1'"
+    ).fetchone()
+    conn.close()
+    assert row == ("s1", 42, 21)
+    s.close()
