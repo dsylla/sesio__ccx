@@ -28,7 +28,8 @@ def settings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 def _run(*args, env=None) -> tuple:
     from ccx.ccxd_cli import app
     res = CliRunner().invoke(app, list(args), env=env or {})
-    return res.exit_code, res.stdout, res.stderr if hasattr(res, "stderr") else ""
+    err = res.stderr if hasattr(res, "stderr") else ""
+    return res.exit_code, res.stdout + err, err
 
 
 def test_install_hooks_writes_seven_event_entries(settings: Path):
@@ -127,3 +128,48 @@ def test_logs_passes_extra_args(systemd_home):
     jctl.assert_called_once()
     args = jctl.call_args.args[0]
     assert "--user-unit" in args and "ccxd" in args
+
+
+def test_query_prints_session_table(tmp_path, monkeypatch):
+    """query connects to ccxd.sock, sends RPC, prints the sessions table."""
+    import socket
+    import threading
+
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+    sock_path = tmp_path / "ccxd.sock"
+    server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    server.bind(str(sock_path))
+    server.listen(1)
+
+    def serve() -> None:
+        conn, _ = server.accept()
+        # Read one NDJSON line then respond
+        buf = b""
+        while not buf.endswith(b"\n"):
+            buf += conn.recv(4096)
+        conn.sendall(json.dumps({
+            "id": 1,
+            "result": {
+                "protocol_version": 1,
+                "sessions": [{"session_id": "ses-1", "cwd": "/tmp/x",
+                              "model": "claude-opus-4-7",
+                              "tokens_in": 100, "tokens_out": 50,
+                              "summary": "doing things"}],
+            },
+        }).encode() + b"\n")
+        conn.close()
+
+    threading.Thread(target=serve, daemon=True).start()
+    code, out, _ = _run("query")
+    server.close()
+    assert code == 0
+    assert "ses-1" in out
+    assert "claude-opus-4-7" in out
+    assert "100" in out and "50" in out
+
+
+def test_query_handles_daemon_down(tmp_path, monkeypatch):
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+    code, out, _ = _run("query")
+    assert code == 1
+    assert "daemon" in out.lower()

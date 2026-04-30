@@ -4,11 +4,14 @@ from __future__ import annotations
 import json
 import os
 import shlex
+import socket as _socket
 import subprocess
 import sys
 from pathlib import Path
 
 import typer
+from rich.console import Console
+from rich.table import Table
 
 app = typer.Typer(help="Manage the ccxd Claude Code session daemon.")
 
@@ -156,3 +159,54 @@ def stop() -> None:
 def logs(extra: list[str] = typer.Argument(None)) -> None:
     """Tail ccxd journal. Pass `-- -f` for follow mode."""
     raise typer.Exit(_journalctl(["--user-unit", _UNIT_NAME, *(extra or [])]))
+
+
+@app.command("query")
+def query() -> None:
+    """Connect to ccxd.sock, request the session list, print as a table."""
+    runtime = Path(os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}"))
+    sock_path = runtime / "ccxd.sock"
+    if not sock_path.exists():
+        typer.echo(f"daemon socket not found at {sock_path}; is ccxd running?",
+                   err=True)
+        raise typer.Exit(1)
+
+    s = _socket.socket(_socket.AF_UNIX, _socket.SOCK_STREAM)
+    try:
+        s.connect(str(sock_path))
+    except OSError as e:
+        typer.echo(f"daemon connect failed: {e}", err=True)
+        raise typer.Exit(1)
+
+    s.sendall(json.dumps({"id": 1, "method": "query", "params": {}}).encode() + b"\n")
+    buf = b""
+    while not buf.endswith(b"\n"):
+        chunk = s.recv(4096)
+        if not chunk:
+            break
+        buf += chunk
+    s.close()
+
+    resp = json.loads(buf.decode().strip())
+    if "error" in resp:
+        typer.echo(f"daemon error: {resp['error']}", err=True)
+        raise typer.Exit(1)
+
+    sessions = resp["result"]["sessions"]
+    if not sessions:
+        typer.echo("no active sessions")
+        return
+
+    table = Table(title=f"ccxd · protocol v{resp['result']['protocol_version']}")
+    for col in ("session_id", "cwd", "model", "in", "out", "summary"):
+        table.add_column(col)
+    for s in sessions:
+        table.add_row(
+            (s.get("session_id") or "")[:12],
+            s.get("cwd") or "",
+            (s.get("model") or "")[:20],
+            str(s.get("tokens_in") or 0),
+            str(s.get("tokens_out") or 0),
+            (s.get("summary") or "")[:40],
+        )
+    Console().print(table)
