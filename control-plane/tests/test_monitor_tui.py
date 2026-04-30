@@ -70,6 +70,11 @@ def test_fetch_ccx_uses_controlpersist_and_parses_json(monkeypatch):
     assert "ControlMaster=auto" in flat
     assert "ControlPersist=" in flat
     assert "ccxctl" in flat
+    # Wrap remote command in `bash -lc` so ~/.local/bin (where ccxctl
+    # lives on the EC2 box) is on PATH — non-login ssh shells skip
+    # the profile that adds it.
+    assert "bash" in flat
+    assert "-lc" in flat
 
 
 def test_fetch_ccx_returns_empty_on_ssh_failure(monkeypatch):

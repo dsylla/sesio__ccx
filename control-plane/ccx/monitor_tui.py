@@ -93,7 +93,12 @@ def fetch_ccx(
         "-o", "ServerAliveInterval=30",
         "-o", "ServerAliveCountMax=2",
         f"{ssh_user}@{hostname}",
-        "ccxctl", "session", "list", "--json",
+        # `bash -lc` so the EC2 box's ~/.profile runs and ~/.local/bin
+        # (where ccxctl lives) is on PATH — non-login ssh shells don't
+        # source it, so a plain `ccxctl ...` here would fail with
+        # command-not-found and the TUI's ccx source would be stuck on
+        # "(unreachable)" forever.
+        "bash", "-lc", "ccxctl session list --json",
     ]
     try:
         r = subprocess.run(
