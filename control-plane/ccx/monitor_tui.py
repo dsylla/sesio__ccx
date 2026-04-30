@@ -64,12 +64,66 @@ class SessionRow:
         )
 
 
-from ccx.sessions import collect_sessions  # noqa: E402  (deliberate late import)
+from ccx.sessions import (  # noqa: E402  (deliberate late import)
+    _PROC,
+    _process_uptime_seconds,
+    _project_jsonl_files,
+    collect_sessions,
+    parse_jsonl_tokens_today,
+)
+
+
+def _scan_freestanding_claudes(
+    exclude_pids: set[int], *, proc_root: str | None = None
+) -> list[SessionRow]:
+    """Detect `claude` processes not running inside the shared `ccx` tmux
+    session — those are already covered by `collect_sessions()`.
+
+    Walks /proc, picks every PID whose `comm` is `claude`, skips any pid in
+    `exclude_pids`, then derives cwd / uptime / today's tokens for each.
+    """
+    root = proc_root or _PROC
+    out: list[SessionRow] = []
+    try:
+        entries = os.listdir(root)
+    except OSError:
+        return out
+    for entry in entries:
+        if not entry.isdigit():
+            continue
+        pid = int(entry)
+        if pid in exclude_pids:
+            continue
+        try:
+            with open(f"{root}/{pid}/comm") as f:
+                if f.read().strip() != "claude":
+                    continue
+        except (FileNotFoundError, PermissionError):
+            continue
+        try:
+            cwd = os.readlink(f"{root}/{pid}/cwd")
+        except (FileNotFoundError, PermissionError, OSError):
+            continue  # tokens + slug both depend on cwd
+        usage = parse_jsonl_tokens_today(_project_jsonl_files(cwd))
+        out.append(SessionRow(
+            source="local",
+            agent="claude",
+            slug=os.path.basename(cwd) or f"pid-{pid}",
+            cwd=cwd,
+            pid=pid,
+            uptime_seconds=_process_uptime_seconds(pid),
+            tokens_in=int(usage["input"]),
+            tokens_out=int(usage["output"]),
+        ))
+    return out
 
 
 def fetch_local() -> list[SessionRow]:
-    """Sessions on the local host. Reuses ccx.sessions.collect_sessions()."""
-    return [SessionRow.from_dict(r, source="local") for r in collect_sessions()]
+    """All local claude sessions: tmux-managed (via collect_sessions) plus
+    free-standing claude processes detected directly via /proc."""
+    managed = [SessionRow.from_dict(r, source="local") for r in collect_sessions()]
+    covered = {r.pid for r in managed if r.pid is not None}
+    return managed + _scan_freestanding_claudes(covered)
 
 
 def fetch_ccx(

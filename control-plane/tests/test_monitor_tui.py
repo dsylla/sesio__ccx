@@ -37,13 +37,69 @@ def test_session_row_from_dict_populates_all_fields():
     assert row.pid == 1240
 
 
-def test_fetch_local_uses_collect_sessions(monkeypatch):
+def test_fetch_local_merges_collect_sessions_and_freestanding(monkeypatch):
+    """fetch_local now returns both tmux-managed sessions AND any free-standing
+    claude process detected via /proc. The two sources are merged with the
+    /proc scan filtered to PIDs not already covered by collect_sessions."""
     fake_rows = [_sample_dict()]
     monkeypatch.setattr(monitor_tui, "collect_sessions", lambda: fake_rows)
+
+    captured: dict = {}
+
+    def fake_scan(exclude_pids):
+        captured["exclude_pids"] = exclude_pids
+        return [
+            monitor_tui.SessionRow(
+                source="local", agent="claude", slug="standalone",
+                cwd="/home/david/elsewhere", pid=9999,
+                uptime_seconds=12.0, tokens_in=42, tokens_out=7,
+            )
+        ]
+
+    monkeypatch.setattr(monitor_tui, "_scan_freestanding_claudes", fake_scan)
     out = monitor_tui.fetch_local()
-    assert len(out) == 1
-    assert out[0].source == "local"
-    assert out[0].slug == "demo"
+
+    assert {r.slug for r in out} == {"demo", "standalone"}
+    # The scan must be told which pids are already counted.
+    assert captured["exclude_pids"] == {1240}
+
+
+def test_scan_freestanding_finds_claude_proc(tmp_path, monkeypatch):
+    """Build a fake /proc with one claude pid + one bash pid; scan should
+    return a single SessionRow for the claude pid."""
+    proc = tmp_path / "proc"
+    proc.mkdir()
+    # claude pid 555
+    (proc / "555").mkdir()
+    (proc / "555" / "comm").write_text("claude\n")
+    cwd_link = tmp_path / "proj-foo"
+    cwd_link.mkdir()
+    (proc / "555" / "cwd").symlink_to(cwd_link)
+    # bash pid 777 — should be ignored
+    (proc / "777").mkdir()
+    (proc / "777" / "comm").write_text("bash\n")
+
+    monkeypatch.setattr(monitor_tui, "_process_uptime_seconds", lambda pid: 30.0)
+    monkeypatch.setattr(monitor_tui, "parse_jsonl_tokens_today", lambda _: {"input": 11, "output": 4})
+    monkeypatch.setattr(monitor_tui, "_project_jsonl_files", lambda _cwd: [])
+
+    rows = monitor_tui._scan_freestanding_claudes(set(), proc_root=str(proc))
+    assert len(rows) == 1
+    assert rows[0].pid == 555
+    assert rows[0].slug == "proj-foo"
+    assert rows[0].cwd == str(cwd_link)
+    assert rows[0].uptime_seconds == 30.0
+    assert rows[0].tokens_in == 11
+    assert rows[0].tokens_out == 4
+
+
+def test_scan_freestanding_skips_excluded_pids(tmp_path):
+    proc = tmp_path / "proc"
+    proc.mkdir()
+    (proc / "100").mkdir()
+    (proc / "100" / "comm").write_text("claude\n")
+    rows = monitor_tui._scan_freestanding_claudes({100}, proc_root=str(proc))
+    assert rows == []
 
 
 def test_fetch_ccx_uses_controlpersist_and_parses_json(monkeypatch):
