@@ -2913,7 +2913,7 @@ Use `/commit`. Message: `test(ccxd): add integration tests — daemon lifecycle,
 **Files:**
 - Modify: `/home/david/Work/sesio/sesio__ccx/control-plane/pyproject.toml` (add pytest-timeout if needed)
 
-- [ ] **Step 1: Add pytest-cov to dev deps (if not already present)**
+- [x] **Step 1: Add pytest-cov to dev deps (if not already present)**
 
 In `control-plane/pyproject.toml`, ensure `pytest-cov` is in dev deps:
 
@@ -2932,7 +2932,7 @@ dev = [
 cd /home/david/Work/sesio/sesio__ccx/control-plane && /usr/bin/uv sync --group dev
 ```
 
-- [ ] **Step 2: Run coverage**
+- [x] **Step 2: Run coverage**
 
 ```bash
 cd /home/david/Work/sesio/sesio__ccx/control-plane && uv run pytest tests/ccxd/ --cov=ccx.ccxd --cov-report=term-missing -v
@@ -2940,7 +2940,7 @@ cd /home/david/Work/sesio/sesio__ccx/control-plane && uv run pytest tests/ccxd/ 
 
 Expected: >=85% line coverage on `ccx/ccxd/`. If not, identify uncovered lines and add targeted tests.
 
-- [ ] **Step 3: Run the full existing test suite (regression check)**
+- [x] **Step 3: Run the full existing test suite (regression check)**
 
 ```bash
 cd /home/david/Work/sesio/sesio__ccx/control-plane && uv run pytest tests/ -v --timeout=30
@@ -2948,7 +2948,7 @@ cd /home/david/Work/sesio/sesio__ccx/control-plane && uv run pytest tests/ -v --
 
 Expected: no regressions — all existing tests still pass.
 
-- [ ] **Step 4: Verify module can start and respond**
+- [x] **Step 4: Verify module can start and respond**
 
 ```bash
 cd /home/david/Work/sesio/sesio__ccx/control-plane && \
@@ -2958,7 +2958,7 @@ cd /home/david/Work/sesio/sesio__ccx/control-plane && \
 
 Expected: logs show "ccxd ready", sockets bound message, then timeout kills it.
 
-- [ ] **Step 5: Commit final dep additions**
+- [x] **Step 5: Commit final dep additions**
 
 Use `/commit`. Message: `chore(ccxd): add pytest-cov + pytest-timeout dev deps for coverage checks`
 
