@@ -2371,7 +2371,7 @@ Use `/commit`. Message: `feat(ccxd): add server.py with asyncio sockets and subs
 - Create: `/home/david/Work/sesio/sesio__ccx/control-plane/ccx/ccxd/__main__.py`
 - Create: `/home/david/Work/sesio/sesio__ccx/control-plane/tests/ccxd/test_main.py` (light — mostly integration)
 
-- [ ] **Step 1: Write test**
+- [x] **Step 1: Write test**
 
 Create `control-plane/tests/ccxd/test_main.py`:
 
@@ -2430,7 +2430,7 @@ class TestMain:
         assert callable(handler)
 ```
 
-- [ ] **Step 2: Implement __main__.py**
+- [x] **Step 2: Implement __main__.py**
 
 Create `control-plane/ccx/ccxd/__main__.py`:
 
@@ -2629,7 +2629,7 @@ if __name__ == "__main__":
     main()
 ```
 
-- [ ] **Step 3: Run — expect PASS**
+- [x] **Step 3: Run — expect PASS**
 
 ```bash
 cd /home/david/Work/sesio/sesio__ccx/control-plane && uv run pytest tests/ccxd/test_main.py -v
@@ -2637,7 +2637,7 @@ cd /home/david/Work/sesio/sesio__ccx/control-plane && uv run pytest tests/ccxd/t
 
 Expected: all pass.
 
-- [ ] **Step 4: Verify the module is runnable (quick smoke)**
+- [x] **Step 4: Verify the module is runnable (quick smoke)**
 
 ```bash
 cd /home/david/Work/sesio/sesio__ccx/control-plane && timeout 2 uv run python -m ccx.ccxd --help || true
@@ -2645,7 +2645,7 @@ cd /home/david/Work/sesio/sesio__ccx/control-plane && timeout 2 uv run python -m
 
 Expected: prints usage/help text and exits.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 Use `/commit`. Message: `feat(ccxd): add __main__.py entrypoint with signal handling and sd_notify`
 
