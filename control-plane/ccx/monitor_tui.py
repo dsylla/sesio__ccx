@@ -7,10 +7,25 @@ also tested.
 """
 from __future__ import annotations
 
+import atexit
 import json
+import logging
+import os
+import select
+import signal
 import subprocess
+import sys
+import termios
+import tty
 from dataclasses import dataclass
-from typing import Literal
+from pathlib import Path
+from typing import Callable, Literal
+
+from rich.console import Group
+from rich.live import Live
+from rich.panel import Panel
+from rich.table import Table
+from rich.text import Text
 
 
 Source = Literal["local", "ccx"]
@@ -93,13 +108,6 @@ def fetch_ccx(
     if not isinstance(data, list):
         return []
     return [SessionRow.from_dict(d, source="ccx") for d in data if isinstance(d, dict)]
-
-
-from pathlib import Path
-from rich.console import Group
-from rich.panel import Panel
-from rich.table import Table
-from rich.text import Text
 
 
 def _fmt_tokens(n: int) -> str:
@@ -202,18 +210,6 @@ def build_panel(
         border_style="cyan",
     )
 
-
-import atexit
-import logging
-import os
-import select
-import signal
-import sys
-import termios
-import tty
-from typing import Callable
-
-from rich.live import Live
 
 log = logging.getLogger(__name__)
 
