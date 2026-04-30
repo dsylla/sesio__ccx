@@ -27,6 +27,8 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
+from ccx.ui import console
+
 
 Source = Literal["local", "ccx"]
 
@@ -293,7 +295,6 @@ def run_tui(
         rows, unreachable = collect_rows(sources, filter_source=filter_source)
         rl = load_rate_limits()
         # Plain print — the non-tty path is for redirects / harnesses, no Live.
-        from ccx.ui import console
         console.print(build_panel(rows, unreachable_sources=unreachable, rate_limits=rl))
         return 0
 
@@ -302,7 +303,6 @@ def run_tui(
     _install_termios_guard(fd, old_settings)
     try:
         tty.setcbreak(fd)
-        from ccx.ui import console
         with Live(build_panel([]), console=console, refresh_per_second=4, screen=True) as live:
             while True:
                 rows, unreachable = collect_rows(sources, filter_source=filter_source)
@@ -321,6 +321,7 @@ def run_tui(
 
 def make_default_sources() -> list[SourceTuple]:
     """Build the standard (local + ccx) source list using ccxctl's CFG."""
+    # Lazy: ccx.cli import-time resolves the AWS profile + boto3 session; defer.
     from ccx.cli import CFG
     return [
         ("local", fetch_local),
