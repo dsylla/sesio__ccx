@@ -1,10 +1,6 @@
 """Tests for ccx.ccxd.__main__ — entrypoint wiring."""
 from __future__ import annotations
 
-import signal
-import sys
-from unittest.mock import AsyncMock, MagicMock, patch
-
 import pytest
 
 
@@ -37,16 +33,13 @@ class TestMain:
         import ccx.ccxd.__main__  # noqa: F401
 
     @pytest.mark.asyncio
-    async def test_shutdown_handler_cancels_cleanly(self):
+    async def test_shutdown_handler_sets_event(self):
+        import asyncio
         from ccx.ccxd.__main__ import _create_shutdown_handler
-        from ccx.ccxd.server import DaemonServer
-        from ccx.ccxd.state import StateManager
-        from ccx.ccxd.store import MemoryStore
 
-        server = MagicMock(spec=DaemonServer)
-        server.stop = AsyncMock()
-        handler = _create_shutdown_handler(server)
-        # Calling the handler should not raise
-        # (In real usage it cancels the event loop)
-        # We just verify it's callable
+        shutdown_event = asyncio.Event()
+        handler = _create_shutdown_handler(shutdown_event)
         assert callable(handler)
+        assert not shutdown_event.is_set()
+        handler()
+        assert shutdown_event.is_set()

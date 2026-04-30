@@ -40,23 +40,12 @@ def sd_notify(state: str) -> None:
         pass
 
 
-def _create_shutdown_handler(server: DaemonServer):
-    """Return a signal callback that initiates graceful shutdown."""
+def _create_shutdown_handler(shutdown_event: asyncio.Event):
+    """Return a signal callback that sets the shutdown event."""
     def handler():
         log.info("shutdown signal received, draining...")
-        asyncio.create_task(_shutdown(server))
+        shutdown_event.set()
     return handler
-
-
-async def _shutdown(server: DaemonServer, drain_seconds: float = 2.0) -> None:
-    """Graceful shutdown: drain subscribers, close sockets, notify systemd."""
-    sd_notify("STOPPING=1")
-    # Give subscribers time to receive pending events
-    await asyncio.sleep(min(drain_seconds, 2.0))
-    await server.stop()
-    # Stop the event loop
-    loop = asyncio.get_running_loop()
-    loop.stop()
 
 
 async def _subagent_heartbeat(state_mgr: StateManager) -> None:
@@ -98,7 +87,8 @@ async def _run(args: argparse.Namespace) -> None:
 
     # Install signal handlers
     loop = asyncio.get_running_loop()
-    shutdown_handler = _create_shutdown_handler(server)
+    shutdown_event = asyncio.Event()
+    shutdown_handler = _create_shutdown_handler(shutdown_event)
     for sig in (signal.SIGTERM, signal.SIGINT):
         loop.add_signal_handler(sig, shutdown_handler)
 
@@ -126,17 +116,18 @@ async def _run(args: argparse.Namespace) -> None:
         except ImportError:
             log.warning("inotify_simple not available; file watching disabled")
 
-    # Run forever (until signal)
+    # Run until signal
+    await shutdown_event.wait()
+
+    # Graceful shutdown: drain subscribers, close sockets, notify systemd
+    sd_notify("STOPPING=1")
+    await asyncio.sleep(2.0)
+    await server.stop()
+    heartbeat.cancel()
     try:
-        await asyncio.Event().wait()
+        await heartbeat
     except asyncio.CancelledError:
         pass
-    finally:
-        heartbeat.cancel()
-        try:
-            await heartbeat
-        except asyncio.CancelledError:
-            pass
 
 
 def _process_inotify(watcher, state_mgr, server) -> None:
