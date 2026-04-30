@@ -66,10 +66,10 @@ class SessionRow:
 
 from ccx.sessions import (  # noqa: E402  (deliberate late import)
     _PROC,
-    _process_uptime_seconds,
-    _project_jsonl_files,
     collect_sessions,
     parse_jsonl_tokens_today,
+    process_uptime_seconds,
+    project_jsonl_files,
 )
 
 
@@ -104,14 +104,14 @@ def _scan_freestanding_claudes(
             cwd = os.readlink(f"{root}/{pid}/cwd")
         except (FileNotFoundError, PermissionError, OSError):
             continue  # tokens + slug both depend on cwd
-        usage = parse_jsonl_tokens_today(_project_jsonl_files(cwd))
+        usage = parse_jsonl_tokens_today(project_jsonl_files(cwd))
         out.append(SessionRow(
             source="local",
             agent="claude",
             slug=os.path.basename(cwd) or f"pid-{pid}",
             cwd=cwd,
             pid=pid,
-            uptime_seconds=_process_uptime_seconds(pid),
+            uptime_seconds=process_uptime_seconds(pid),
             tokens_in=int(usage["input"]),
             tokens_out=int(usage["output"]),
         ))

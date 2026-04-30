@@ -79,9 +79,9 @@ def test_scan_freestanding_finds_claude_proc(tmp_path, monkeypatch):
     (proc / "777").mkdir()
     (proc / "777" / "comm").write_text("bash\n")
 
-    monkeypatch.setattr(monitor_tui, "_process_uptime_seconds", lambda pid: 30.0)
+    monkeypatch.setattr(monitor_tui, "process_uptime_seconds", lambda pid: 30.0)
     monkeypatch.setattr(monitor_tui, "parse_jsonl_tokens_today", lambda _: {"input": 11, "output": 4})
-    monkeypatch.setattr(monitor_tui, "_project_jsonl_files", lambda _cwd: [])
+    monkeypatch.setattr(monitor_tui, "project_jsonl_files", lambda _cwd: [])
 
     rows = monitor_tui._scan_freestanding_claudes(set(), proc_root=str(proc))
     assert len(rows) == 1

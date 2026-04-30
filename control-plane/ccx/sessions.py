@@ -33,7 +33,7 @@ def encode_project_dir(path: str) -> str:
     `~/.claude/projects/-home-david-Work-sesio-sesio--ccx/`. The earlier
     "only `/` → `-`" mapping silently mis-targeted any project whose path
     contained underscores or dots (i.e. every sesio project) — token
-    totals came back as 0 because `_project_jsonl_files()` was looking in
+    totals came back as 0 because `project_jsonl_files()` was looking in
     a directory that didn't exist.
     """
     return _PROJECT_DIR_RE.sub("-", os.path.abspath(path))
@@ -181,7 +181,7 @@ def _boot_time() -> float:
 _BOOT_FN = _boot_time
 
 
-def _process_uptime_seconds(pid: int) -> float | None:
+def process_uptime_seconds(pid: int) -> float | None:
     """Uptime of a pid in seconds, derived from /proc/<pid>/stat starttime field."""
     try:
         with open(f"{_PROC}/{pid}/stat") as f:
@@ -199,7 +199,7 @@ def _process_uptime_seconds(pid: int) -> float | None:
     return _NOW_FN() - start_epoch
 
 
-def _project_jsonl_files(cwd: str) -> list[Path]:
+def project_jsonl_files(cwd: str) -> list[Path]:
     enc = encode_project_dir(cwd)
     d = Path(_CLAUDE_PROJECTS_DIR) / enc
     if not d.is_dir():
@@ -207,17 +207,11 @@ def _project_jsonl_files(cwd: str) -> list[Path]:
     return sorted(d.glob("*.jsonl"))
 
 
-# Public names — ccxd imports these; the underscore versions are retained
-# for back-compat with monitor_tui.py until Plan 2 migrates it.
-project_jsonl_files = _project_jsonl_files
-process_uptime_seconds = _process_uptime_seconds
-
-
 def _usage_for_agent(agent_name: str, cwd: str) -> dict:
     """Per-agent usage stats. Only Claude has a local jsonl source today."""
     if agent_name != "claude":
         return {"input": 0, "output": 0, "available": False}
-    tk = parse_jsonl_tokens_today(_project_jsonl_files(cwd))
+    tk = parse_jsonl_tokens_today(project_jsonl_files(cwd))
     return {**tk, "available": True}
 
 
@@ -229,7 +223,7 @@ def collect_sessions() -> list[dict]:
             agent_name, bare_slug = split_window_name(row["slug"])
             agent = get_agent(agent_name)
             agent_pid = find_agent_pid(row["pane_pid"], agent)
-            uptime = _process_uptime_seconds(agent_pid) if agent_pid else None
+            uptime = process_uptime_seconds(agent_pid) if agent_pid else None
             usage = _usage_for_agent(agent.name, row["cwd"])
         except Exception:
             agent_name = "claude"
