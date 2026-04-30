@@ -95,3 +95,31 @@ class TestHandleRpc:
                 "params": {"events": [glob]},
             })
             assert "result" in resp, f"Failed for glob: {glob}"
+
+
+def test_history_closed_today_dispatches_to_store():
+    mgr = _make_mgr_with_session()
+    resp = handle_rpc(mgr, {
+        "id": 9, "method": "history.closed_today",
+        "params": {"since_epoch": 1000.0},
+    })
+    assert resp["id"] == 9
+    assert resp["result"] == {"sessions": []}  # MemoryStore returns []
+
+
+def test_history_tokens_for_period_dispatches_to_store():
+    mgr = _make_mgr_with_session()
+    resp = handle_rpc(mgr, {
+        "id": 10, "method": "history.tokens_for_period",
+        "params": {"start": 1000.0, "end": 2000.0},
+    })
+    assert resp["id"] == 10
+    assert resp["result"] == {}  # MemoryStore returns {}
+
+
+def test_history_method_validates_params():
+    mgr = _make_mgr_with_session()
+    resp = handle_rpc(mgr, {
+        "id": 11, "method": "history.closed_today", "params": {},
+    })
+    assert resp["error"]["code"] == "invalid_params"

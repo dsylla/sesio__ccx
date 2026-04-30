@@ -47,6 +47,10 @@ def handle_rpc(mgr: "StateManager", msg: dict) -> dict:
         return _handle_subscribe(msg_id, params)
     elif method == "unsubscribe":
         return _handle_unsubscribe(msg_id, params)
+    elif method == "history.closed_today":
+        return _handle_history_closed_today(msg_id, mgr, params)
+    elif method == "history.tokens_for_period":
+        return _handle_history_tokens_for_period(msg_id, mgr, params)
     else:
         return {
             "id": msg_id,
@@ -85,6 +89,33 @@ def _handle_unsubscribe(msg_id, params: dict) -> dict:
     sub_id = params.get("sub_id", "")
     _subscriptions.pop(sub_id, None)
     return {"id": msg_id, "result": {"ok": True}}
+
+
+def _handle_history_closed_today(msg_id, mgr: "StateManager", params: dict) -> dict:
+    since = params.get("since_epoch")
+    if not isinstance(since, (int, float)):
+        return {
+            "id": msg_id,
+            "error": {"code": "invalid_params",
+                      "message": "history.closed_today requires numeric 'since_epoch'"},
+        }
+    sessions = mgr.store.closed_today(float(since))
+    return {
+        "id": msg_id,
+        "result": {"sessions": [s.__dict__ for s in sessions]},
+    }
+
+
+def _handle_history_tokens_for_period(msg_id, mgr: "StateManager", params: dict) -> dict:
+    start = params.get("start")
+    end = params.get("end")
+    if not isinstance(start, (int, float)) or not isinstance(end, (int, float)):
+        return {
+            "id": msg_id,
+            "error": {"code": "invalid_params",
+                      "message": "history.tokens_for_period requires numeric 'start' and 'end'"},
+        }
+    return {"id": msg_id, "result": mgr.store.tokens_for_period(float(start), float(end))}
 
 
 def matches_subscription(event_name: str, event_globs: list[str]) -> bool:
