@@ -20,6 +20,7 @@ from ccx.ccxd.discovery import discover_sessions
 from ccx.ccxd.server import DaemonServer
 from ccx.ccxd.state import StateManager
 from ccx.ccxd.store import MemoryStore
+from ccx.ccxd.tailer import TailerRegistry
 
 log = logging.getLogger("ccxd")
 
@@ -103,14 +104,17 @@ async def _run(args: argparse.Namespace) -> None:
     if not os.environ.get("CCXD_SKIP_DISCOVERY"):
         try:
             from ccx.ccxd.inotify import InotifyWatcher
-            from ccx.ccxd.jsonl import JsonlTailer, parse_deltas
 
             projects_dir = Path(os.path.expanduser("~/.claude/projects"))
             if projects_dir.is_dir():
                 watcher = InotifyWatcher(projects_dir)
+                tailer_registry = TailerRegistry(state_mgr)
                 log.info("inotify watching %s", projects_dir)
                 # Register fd with event loop
-                loop.add_reader(watcher.fd, lambda: _process_inotify(watcher, state_mgr, server))
+                loop.add_reader(
+                    watcher.fd,
+                    lambda: _process_inotify(watcher, state_mgr, server, tailer_registry),
+                )
             else:
                 log.warning("projects dir not found: %s", projects_dir)
         except ImportError:
@@ -130,10 +134,8 @@ async def _run(args: argparse.Namespace) -> None:
         pass
 
 
-def _process_inotify(watcher, state_mgr, server) -> None:
+def _process_inotify(watcher, state_mgr, server, tailer_registry) -> None:
     """Callback for inotify fd readable — process events."""
-    from ccx.ccxd.jsonl import JsonlTailer, parse_deltas
-
     events = watcher.read_events()
     if not events:
         return
@@ -151,15 +153,15 @@ def _process_inotify(watcher, state_mgr, server) -> None:
 
     # Handle file modifications
     from inotify_simple import flags as iflags
+    loop = asyncio.get_event_loop()
     for event in events:
         if event.mask & iflags.MODIFY:
             path = watcher.resolve_event_path(event)
-            if path and path.suffix == ".jsonl" and "subagents" not in str(path):
-                # Read incremental changes
-                # NOTE: In production, we'd maintain a dict of tailers per path.
-                # For V1, the server owns this state. This is simplified here
-                # and the full tailer registry lives in the main loop.
-                pass
+            if not path or path.suffix != ".jsonl" or "subagents" in path.parts:
+                continue
+            session_id = path.stem
+            for ev in tailer_registry.apply(path, session_id):
+                loop.create_task(server.broadcast(ev))
 
 
 def main() -> None:

@@ -45,6 +45,24 @@ class StateManager:
     def __init__(self, store: "Store") -> None:
         self._store = store
 
+    @property
+    def store(self) -> "Store":
+        """Read-only access to the underlying store."""
+        return self._store
+
+    def upsert_blank(self, session_id: str, cwd: str, pid: int | None = None) -> None:
+        """Create a Session with default fields if it doesn't exist."""
+        if self._store.get(session_id) is not None:
+            return
+        import time
+        self._store.upsert(Session(
+            session_id=session_id, cwd=cwd, pid=pid,
+            model=None, summary=None,
+            tokens_in=0, tokens_out=0,
+            last_subagent=None, subagent_in_flight=None, attention=None,
+            last_activity_at=time.time(), started_at=time.time(),
+        ))
+
     def upsert(self, session: Session) -> None:
         self._store.upsert(session)
 
