@@ -11,6 +11,9 @@ dependencies = [
 
 [project.scripts]
 ccxctl = "ccx.cli:app"
+claude-bedrock = "ccx.claude_provider:bedrock"
+claude-sub = "ccx.claude_provider:subscription"
+claude-provider = "ccx.claude_provider:provider"
 
 [dependency-groups]
 dev = [

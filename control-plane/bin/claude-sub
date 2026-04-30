@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+set -euo pipefail
+DIR="$(dirname "$(readlink -f "$0")")"
+
+if [ -z "${UV:-}" ]; then
+  for candidate in /usr/bin/uv /usr/local/bin/uv "$HOME/.local/bin/uv"; do
+    if [ -x "$candidate" ]; then UV="$candidate"; break; fi
+  done
+  UV="${UV:-$(command -v uv || true)}"
+fi
+[ -n "$UV" ] || { echo "claude-sub: uv not found" >&2; exit 127; }
+
+exec "$UV" run --quiet --project "$DIR/.." --no-dev claude-sub "$@"
