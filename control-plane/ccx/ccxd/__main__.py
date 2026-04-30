@@ -80,10 +80,13 @@ async def _run(args: argparse.Namespace) -> None:
     state_mgr = StateManager(store)
 
     # Discovery: seed state from running processes
-    log.info("discovering existing claude sessions...")
-    for session in discover_sessions():
-        state_mgr.upsert(session)
-    log.info("discovered %d session(s)", state_mgr.count_active())
+    if not os.environ.get("CCXD_SKIP_DISCOVERY"):
+        log.info("discovering existing claude sessions...")
+        for session in discover_sessions():
+            state_mgr.upsert(session)
+        log.info("discovered %d session(s)", state_mgr.count_active())
+    else:
+        log.info("discovery skipped (CCXD_SKIP_DISCOVERY set)")
 
     # Start server
     runtime_dir = Path(
@@ -107,20 +110,21 @@ async def _run(args: argparse.Namespace) -> None:
     log.info("ccxd ready (pid=%d)", os.getpid())
 
     # inotify watcher (best-effort — continues without it)
-    try:
-        from ccx.ccxd.inotify import InotifyWatcher
-        from ccx.ccxd.jsonl import JsonlTailer, parse_deltas
+    if not os.environ.get("CCXD_SKIP_DISCOVERY"):
+        try:
+            from ccx.ccxd.inotify import InotifyWatcher
+            from ccx.ccxd.jsonl import JsonlTailer, parse_deltas
 
-        projects_dir = Path(os.path.expanduser("~/.claude/projects"))
-        if projects_dir.is_dir():
-            watcher = InotifyWatcher(projects_dir)
-            log.info("inotify watching %s", projects_dir)
-            # Register fd with event loop
-            loop.add_reader(watcher.fd, lambda: _process_inotify(watcher, state_mgr, server))
-        else:
-            log.warning("projects dir not found: %s", projects_dir)
-    except ImportError:
-        log.warning("inotify_simple not available; file watching disabled")
+            projects_dir = Path(os.path.expanduser("~/.claude/projects"))
+            if projects_dir.is_dir():
+                watcher = InotifyWatcher(projects_dir)
+                log.info("inotify watching %s", projects_dir)
+                # Register fd with event loop
+                loop.add_reader(watcher.fd, lambda: _process_inotify(watcher, state_mgr, server))
+            else:
+                log.warning("projects dir not found: %s", projects_dir)
+        except ImportError:
+            log.warning("inotify_simple not available; file watching disabled")
 
     # Run forever (until signal)
     try:

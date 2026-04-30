@@ -2656,7 +2656,7 @@ Use `/commit`. Message: `feat(ccxd): add __main__.py entrypoint with signal hand
 **Files:**
 - Create: `/home/david/Work/sesio/sesio__ccx/control-plane/tests/ccxd/test_integration.py`
 
-- [ ] **Step 1: Write integration test**
+- [x] **Step 1: Write integration test**
 
 Create `control-plane/tests/ccxd/test_integration.py`:
 
@@ -2860,7 +2860,7 @@ class TestIntegration:
                 proc.wait()
 ```
 
-- [ ] **Step 2: Update `__main__.py` to support CCXD_SKIP_DISCOVERY env var**
+- [x] **Step 2: Update `__main__.py` to support CCXD_SKIP_DISCOVERY env var**
 
 In `control-plane/ccx/ccxd/__main__.py`, modify the discovery section in `_run()`:
 
@@ -2886,7 +2886,7 @@ Also skip inotify when CCXD_SKIP_DISCOVERY is set (no projects dir in test env):
             ...
 ```
 
-- [ ] **Step 3: Run integration test — expect PASS**
+- [x] **Step 3: Run integration test — expect PASS**
 
 ```bash
 cd /home/david/Work/sesio/sesio__ccx/control-plane && uv run pytest tests/ccxd/test_integration.py -v --timeout=30
@@ -2894,7 +2894,7 @@ cd /home/david/Work/sesio/sesio__ccx/control-plane && uv run pytest tests/ccxd/t
 
 Expected: both tests pass.
 
-- [ ] **Step 4: Run full ccxd test suite**
+- [x] **Step 4: Run full ccxd test suite**
 
 ```bash
 cd /home/david/Work/sesio/sesio__ccx/control-plane && uv run pytest tests/ccxd/ -v
@@ -2902,7 +2902,7 @@ cd /home/david/Work/sesio/sesio__ccx/control-plane && uv run pytest tests/ccxd/ 
 
 Expected: all pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 Use `/commit`. Message: `test(ccxd): add integration tests — daemon lifecycle, subscribe, hook delivery`
 
