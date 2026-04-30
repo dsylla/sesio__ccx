@@ -26,9 +26,16 @@ def test_slug_lower_collapse_dashes():
 
 
 def test_encode_project_dir():
-    """Claude Code's convention: /home/david/x/y -> -home-david-x-y"""
+    """Claude Code's convention: /, ., and _ all become - in the per-project dir name."""
     from ccx.sessions import encode_project_dir
     assert encode_project_dir("/home/david/Work/sesio/ccx") == "-home-david-Work-sesio-ccx"
+    # Underscores must collapse to dashes — `sesio__ccx` shows up on disk
+    # as `sesio--ccx`. Anything that didn't would point ccx tooling at a
+    # directory that doesn't exist.
+    assert encode_project_dir("/home/david/Work/sesio/sesio__ccx") == \
+        "-home-david-Work-sesio-sesio--ccx"
+    # Dots too.
+    assert encode_project_dir("/home/david/.config/foo") == "-home-david--config-foo"
 
 
 def test_parse_jsonl_tokens_today_sums_today(tmp_path: Path):

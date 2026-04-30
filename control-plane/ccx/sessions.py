@@ -22,11 +22,21 @@ def slug(path: str) -> str:
     return s
 
 
+_PROJECT_DIR_RE = re.compile(r"[/._]")
+
+
 def encode_project_dir(path: str) -> str:
-    """Claude Code's on-disk convention for per-project dirs: `/` → `-`."""
-    abs_path = os.path.abspath(path)
-    # Leading slash becomes a leading dash, other slashes too.
-    return abs_path.replace("/", "-")
+    """Claude Code's on-disk convention for per-project dirs.
+
+    Claude encodes the cwd by replacing every `/`, `.`, AND `_` with `-`.
+    Verified empirically: `/home/david/Work/sesio/sesio__ccx` shows up as
+    `~/.claude/projects/-home-david-Work-sesio-sesio--ccx/`. The earlier
+    "only `/` → `-`" mapping silently mis-targeted any project whose path
+    contained underscores or dots (i.e. every sesio project) — token
+    totals came back as 0 because `_project_jsonl_files()` was looking in
+    a directory that didn't exist.
+    """
+    return _PROJECT_DIR_RE.sub("-", os.path.abspath(path))
 
 
 def parse_jsonl_tokens_today(jsonl_files: list[Path]) -> dict[str, int]:
